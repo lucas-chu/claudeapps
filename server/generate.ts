@@ -19,6 +19,22 @@ function sse(res: ServerResponse, event: string, payload: unknown) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`)
 }
 
+// Strips anything resembling an Anthropic API key so it can never reach a
+// log line or a client payload, regardless of how the SDK populates errors.
+const API_KEY_PATTERN = /sk-ant-[A-Za-z0-9_-]+/g
+function redact(message: string): string {
+  return message.replace(API_KEY_PATTERN, '[redacted]')
+}
+
+// SDK 0.116.0 exports a proper type for the web_search_20260209 tool variant
+// (Anthropic.Messages.ToolUnion includes WebSearchTool20260209), so a plain
+// annotation is enough here — no cast needed, and model/max_tokens/messages
+// below stay fully type-checked.
+const webSearchTool: Anthropic.Messages.ToolUnion = {
+  type: 'web_search_20260209',
+  name: 'web_search',
+}
+
 export async function handleGenerate(
   req: IncomingMessage,
   res: ServerResponse,
@@ -52,8 +68,8 @@ export async function handleGenerate(
       messages,
       // Search is available, not forced: the model calls it only when the
       // question needs current information.
-      tools: [{ type: 'web_search_20260209', name: 'web_search' }],
-    } as Parameters<typeof client.messages.stream>[0])
+      tools: [webSearchTool],
+    })
 
     stream.on('text', (text) => sse(res, 'delta', { text }))
 
@@ -65,7 +81,6 @@ export async function handleGenerate(
       sse(res, 'error', {
         message: 'Claude declined this request.',
       })
-      res.end()
       return
     }
 
@@ -74,8 +89,9 @@ export async function handleGenerate(
 
     sse(res, 'done', {})
   } catch (err) {
-    console.error('[generate]', err)
-    sse(res, 'error', { message: (err as Error).message || 'Generation failed' })
+    const message = redact((err as Error).message || 'Generation failed')
+    console.error('[generate]', { message, status: (err as { status?: number }).status })
+    sse(res, 'error', { message })
   } finally {
     res.end()
   }
