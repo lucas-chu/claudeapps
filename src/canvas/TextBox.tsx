@@ -17,11 +17,12 @@ type Props = {
   onDragStart: (e: React.PointerEvent, id: string) => void
   onResizeStart: (e: React.PointerEvent, id: string, handle: Handle) => void
   onSelect: (e: React.PointerEvent, id: string) => void
+  onRetry: (id: string) => void
 }
 
 export default function TextBox({
   box, viewport, selected, shadowText, dispatch,
-  onDragStart, onResizeStart, onSelect,
+  onDragStart, onResizeStart, onSelect, onRetry,
 }: Props) {
   const [editing, setEditing] = useState(false)
   const p = worldToScreen({ x: box.x, y: box.y }, viewport)
@@ -78,7 +79,20 @@ export default function TextBox({
         )}
       </div>
 
-      {box.status === 'error' && <div className="box-errmsg">{box.error}</div>}
+      {box.status === 'error' && (
+        <div className="box-errmsg">
+          <span>{box.error}</span>
+          {box.lastPrompt && (
+            <button
+              className="box-retry"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => onRetry(box.id)}
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      )}
 
       {box.sources && box.sources.length > 0 && (
         <div className="box-sources">
@@ -88,6 +102,21 @@ export default function TextBox({
             </a>
           ))}
         </div>
+      )}
+
+      {box.fromTurnId && (
+        <button
+          className="box-provenance"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => {
+            const el = document.getElementById(`turn-${box.fromTurnId}`)
+            el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            el?.classList.add('is-highlit')
+            setTimeout(() => el?.classList.remove('is-highlit'), 1600)
+          }}
+        >
+          from chat ↗
+        </button>
       )}
 
       {selected &&

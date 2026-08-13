@@ -15,8 +15,8 @@ type Drag =
   | { kind: 'marquee'; from: Point; to: Point }
 
 export default function Canvas({
-  state, dispatch,
-}: { state: State; dispatch: (a: Action) => void }) {
+  state, dispatch, onRetry,
+}: { state: State; dispatch: (a: Action) => void; onRetry: (id: string) => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState<Drag>({ kind: 'none' })
   const vp = state.viewport
@@ -137,6 +137,7 @@ export default function Canvas({
           selected={state.selection.includes(b.id)}
           shadowText={state.shadow[b.id]}
           dispatch={dispatch}
+          onRetry={onRetry}
           onSelect={(e, id) => {
             e.stopPropagation()
             if (e.shiftKey) dispatch({ type: 'toggleSelect', id })
