@@ -170,7 +170,10 @@ cannot reach the page or the key). Neither is built now.
 
 ## Canvas behavior
 
-- Infinite pannable, zoomable viewport. Scroll to zoom, space-drag or middle-drag to pan.
+- Infinite pannable, zoomable viewport. Scroll to zoom, alt-drag or middle-drag to pan.
+  Alt rather than the more conventional space: space-drag fights with typing in the
+  omnibar and the chat input, and a pan that fires while someone is typing is exactly
+  the kind of failure a live demo cannot afford.
 - Boxes drag from their header, resize from 8 handles.
 - Selection: click, shift-click to add, marquee drag on empty canvas, Escape to clear.
 - Double-click a box to edit its text directly.
