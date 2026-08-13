@@ -40,7 +40,13 @@ export default function TextBox({
       }}
       onPointerDown={(e) => onSelect(e, box.id)}
     >
-      <div className="box-header" onPointerDown={(e) => onDragStart(e, box.id)}>
+      <div
+        className="box-header"
+        onPointerDown={(e) => {
+          (e.currentTarget as Element).setPointerCapture(e.pointerId)
+          onDragStart(e, box.id)
+        }}
+      >
         <span className="box-status">
           {box.status === 'streaming' ? '…' : box.status === 'error' ? '!' : ''}
         </span>
@@ -91,6 +97,7 @@ export default function TextBox({
             className={`handle handle-${h}`}
             onPointerDown={(e) => {
               e.stopPropagation()
+              ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
               onResizeStart(e, box.id, h)
             }}
           />

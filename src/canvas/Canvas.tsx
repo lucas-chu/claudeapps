@@ -43,6 +43,15 @@ export default function Canvas({
   const onPointerMove = (e: React.PointerEvent) => {
     if (drag.kind === 'none') return
 
+    // Belt and braces: if the pointer's button was released outside the
+    // canvas subtree (missing our pointerup), buttons will read 0 here.
+    // Treat that as a lost release and reset instead of letting the box
+    // follow the cursor on plain hover.
+    if (e.buttons === 0) {
+      setDrag({ kind: 'none' })
+      return
+    }
+
     if (drag.kind === 'pan') {
       const dx = (e.clientX - drag.last.x) / vp.zoom
       const dy = (e.clientY - drag.last.y) / vp.zoom
