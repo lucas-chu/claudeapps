@@ -1,0 +1,8 @@
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  font: 14px/1.5 ui-sans-serif, -apple-system, system-ui, sans-serif;
+  color: #1a1a1a;
+  background: #f6f5f3;
+}
+.app { display: flex; height: 100%; }
