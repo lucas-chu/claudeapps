@@ -1,0 +1,144 @@
+import { describe, it, expect } from 'vitest'
+import { reducer, initialState, MAX_TURNS } from './store'
+import type { Box } from './types'
+
+const box = (id: string, over: Partial<Box> = {}): Box => ({
+  id, x: 0, y: 0, w: 320, h: 220,
+  blocks: [{ type: 'text', text: '' }],
+  render: 'markdown', status: 'idle', ...over,
+})
+
+describe('boxes', () => {
+  it('adds a box and selects it', () => {
+    const s = reducer(initialState, { type: 'addBox', box: box('a') })
+    expect(s.boxes).toHaveLength(1)
+    expect(s.selection).toEqual(['a'])
+  })
+
+  it('moves a box without touching others', () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a') })
+    s = reducer(s, { type: 'addBox', box: box('b') })
+    s = reducer(s, { type: 'moveBox', id: 'a', x: 50, y: 60 })
+    expect(s.boxes.find((b) => b.id === 'a')).toMatchObject({ x: 50, y: 60 })
+    expect(s.boxes.find((b) => b.id === 'b')).toMatchObject({ x: 0, y: 0 })
+  })
+
+  it('enforces a minimum size on resize', () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a') })
+    s = reducer(s, { type: 'resizeBox', id: 'a', x: 0, y: 0, w: 10, h: 10 })
+    const b = s.boxes[0]
+    expect(b.w).toBeGreaterThanOrEqual(160)
+    expect(b.h).toBeGreaterThanOrEqual(100)
+  })
+
+  it('deletes a box and drops it from the selection', () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a') })
+    s = reducer(s, { type: 'deleteBox', id: 'a' })
+    expect(s.boxes).toHaveLength(0)
+    expect(s.selection).toEqual([])
+  })
+})
+
+describe('selection', () => {
+  const twoBoxes = () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a') })
+    return reducer(s, { type: 'addBox', box: box('b') })
+  }
+
+  it('replaces the selection on select', () => {
+    const s = reducer(twoBoxes(), { type: 'select', ids: ['a'] })
+    expect(s.selection).toEqual(['a'])
+  })
+
+  it('adds and removes with toggleSelect', () => {
+    let s = reducer(twoBoxes(), { type: 'select', ids: ['a'] })
+    s = reducer(s, { type: 'toggleSelect', id: 'b' })
+    expect(s.selection.sort()).toEqual(['a', 'b'])
+    s = reducer(s, { type: 'toggleSelect', id: 'a' })
+    expect(s.selection).toEqual(['b'])
+  })
+
+  it('clears the selection', () => {
+    const s = reducer(twoBoxes(), { type: 'clearSelection' })
+    expect(s.selection).toEqual([])
+  })
+})
+
+describe('streaming into a box', () => {
+  it('appends deltas to the last text block', () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a') })
+    s = reducer(s, { type: 'appendDelta', id: 'a', text: 'Hel' })
+    s = reducer(s, { type: 'appendDelta', id: 'a', text: 'lo' })
+    expect(s.boxes[0].blocks).toEqual([{ type: 'text', text: 'Hello' }])
+  })
+
+  it('records an error status and message', () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a') })
+    s = reducer(s, { type: 'setBoxError', id: 'a', error: 'refused' })
+    expect(s.boxes[0]).toMatchObject({ status: 'error', error: 'refused' })
+  })
+
+  it('remembers the prompt that generated a box so it can be retried', () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a') })
+    s = reducer(s, { type: 'setBoxPrompt', id: 'a', prompt: 'write a haiku' })
+    expect(s.boxes[0].lastPrompt).toBe('write a haiku')
+  })
+})
+
+describe('shadow buffer for in-place rewrites', () => {
+  it('commits replacing the original text', () => {
+    let s = reducer(initialState, {
+      type: 'addBox',
+      box: box('a', { blocks: [{ type: 'text', text: 'original' }] }),
+    })
+    s = reducer(s, { type: 'beginShadow', id: 'a' })
+    s = reducer(s, { type: 'appendShadow', id: 'a', text: 'new text' })
+    expect(s.boxes[0].blocks[0]).toEqual({ type: 'text', text: 'original' })
+    s = reducer(s, { type: 'commitShadow', id: 'a' })
+    expect(s.boxes[0].blocks[0]).toEqual({ type: 'text', text: 'new text' })
+    expect(s.shadow.a).toBeUndefined()
+  })
+
+  it('rolls back leaving the original intact', () => {
+    let s = reducer(initialState, {
+      type: 'addBox',
+      box: box('a', { blocks: [{ type: 'text', text: 'original' }] }),
+    })
+    s = reducer(s, { type: 'beginShadow', id: 'a' })
+    s = reducer(s, { type: 'appendShadow', id: 'a', text: 'partial junk' })
+    s = reducer(s, { type: 'rollbackShadow', id: 'a', error: 'network died' })
+    expect(s.boxes[0].blocks[0]).toEqual({ type: 'text', text: 'original' })
+    expect(s.boxes[0].status).toBe('error')
+    expect(s.shadow.a).toBeUndefined()
+  })
+})
+
+describe('thread', () => {
+  it('appends turns', () => {
+    const s = reducer(initialState, {
+      type: 'addTurn',
+      turn: { id: 't1', role: 'user', blocks: [{ type: 'text', text: 'hi' }] },
+    })
+    expect(s.turns).toHaveLength(1)
+  })
+
+  it('keeps every turn in state regardless of the context cap', () => {
+    let s = initialState
+    for (let i = 0; i < MAX_TURNS * 3; i++) {
+      s = reducer(s, {
+        type: 'addTurn',
+        turn: { id: `t${i}`, role: 'user', blocks: [{ type: 'text', text: 'x' }] },
+      })
+    }
+    expect(s.turns.length).toBe(MAX_TURNS * 3)
+  })
+
+  it('clears the thread', () => {
+    let s = reducer(initialState, {
+      type: 'addTurn',
+      turn: { id: 't1', role: 'user', blocks: [{ type: 'text', text: 'hi' }] },
+    })
+    s = reducer(s, { type: 'clearThread' })
+    expect(s.turns).toEqual([])
+  })
+})
