@@ -71,6 +71,13 @@ body {
 .handle-sw { left: -5px; bottom: -5px; cursor: nesw-resize; }
 .handle-w  { left: -5px; top: calc(50% - 5px); cursor: ew-resize; }
 
+.marquee {
+  position: absolute;
+  border: 1px solid #c2643c;
+  background: rgba(194, 100, 60, .08);
+  pointer-events: none;
+}
+
 .canvas-shell { position: relative; flex: 1; display: flex; min-width: 0; }
 
 .omnibar {
@@ -110,7 +117,11 @@ body {
 .turn-label { font-size: 11px; color: #8a8580; margin-bottom: 3px; }
 .turn-body p:first-child { margin-top: 0; }
 .turn-body p:last-child { margin-bottom: 0; }
-.turn-error { color: #8c2f22; font-size: 12px; margin-top: 4px; }
+.turn-error {
+  display: flex; align-items: center; gap: 8px;
+  color: #8c2f22; font-size: 12px; margin-top: 4px;
+}
+.turn-error .turn-promote { margin-top: 0; }
 .turn-promote {
   margin-top: 6px; padding: 3px 8px; font-size: 11px;
   border: 1px solid #d8d5cf; border-radius: 999px; background: #fff; cursor: pointer;

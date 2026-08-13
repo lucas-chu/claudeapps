@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import TextBox, { type Handle } from './TextBox'
 import {
-  screenToWorld, zoomAt, rectsOverlap,
+  screenToWorld, worldToScreen, zoomAt, rectsOverlap,
   type Point, type Rect,
 } from './geometry'
 import type { Action, State } from '../state/store'
@@ -27,11 +27,15 @@ export default function Canvas({
   }
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (e.target !== e.currentTarget) return // a box handled it
+    const isPan = e.button === 1 || e.altKey
+    // A box swallows plain clicks (select/drag/resize), but alt-drag and
+    // middle-drag must still pan even when they start on top of a box, so
+    // TextBox lets those through unstopped and we accept them here.
+    if (e.target !== e.currentTarget && !isPan) return // a box handled it
     ref.current!.setPointerCapture(e.pointerId)
     // Alt or middle button pans; a plain drag on empty canvas marquee-selects.
     // Alt rather than space: space-drag would fight with typing in the omnibar.
-    if (e.button === 1 || e.altKey) {
+    if (isPan) {
       setDrag({ kind: 'pan', last: { x: e.clientX, y: e.clientY } })
     } else {
       const w = toWorld(e)
@@ -116,7 +120,12 @@ export default function Canvas({
   const onWheel = (e: React.WheelEvent) => {
     const rect = ref.current!.getBoundingClientRect()
     const point = { x: e.clientX - rect.left, y: e.clientY - rect.top }
-    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1
+    // Scale the zoom factor by the actual scroll magnitude rather than a
+    // fixed step, so a trackpad's ~30-60 events per gesture produce smooth
+    // zoom instead of slamming into MIN_ZOOM/MAX_ZOOM in a dozen events.
+    // deltaMode normalises line (1) and page (2) units to pixels.
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1
+    const factor = Math.exp(-e.deltaY * unit * 0.002)
     dispatch({ type: 'setViewport', viewport: zoomAt(vp, point, factor) })
   }
 
@@ -165,6 +174,21 @@ export default function Canvas({
           }}
         />
       ))}
+      {drag.kind === 'marquee' && (() => {
+        const a = worldToScreen(drag.from, vp)
+        const b = worldToScreen(drag.to, vp)
+        return (
+          <div
+            className="marquee"
+            style={{
+              left: Math.min(a.x, b.x),
+              top: Math.min(a.y, b.y),
+              width: Math.abs(b.x - a.x),
+              height: Math.abs(b.y - a.y),
+            }}
+          />
+        )
+      })()}
     </div>
   )
 }

@@ -52,24 +52,33 @@ export async function generate(
   let buffer = ''
   let errored = false
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
 
-    const events = parseSSE(buffer)
-    // Retain only the trailing partial event.
-    const lastBreak = buffer.lastIndexOf('\n\n')
-    if (lastBreak !== -1) buffer = buffer.slice(lastBreak + 2)
+      const events = parseSSE(buffer)
+      // Retain only the trailing partial event.
+      const lastBreak = buffer.lastIndexOf('\n\n')
+      if (lastBreak !== -1) buffer = buffer.slice(lastBreak + 2)
 
-    for (const { event, data } of events) {
-      if (event === 'delta') handlers.onDelta(data.text)
-      else if (event === 'sources') handlers.onSources(data.sources)
-      else if (event === 'error') {
-        errored = true
-        handlers.onError(data.message)
+      for (const { event, data } of events) {
+        if (event === 'delta') handlers.onDelta(data.text)
+        else if (event === 'sources') handlers.onSources(data.sources)
+        else if (event === 'error') {
+          errored = true
+          handlers.onError(data.message)
+        }
       }
     }
+  } catch (err) {
+    // The socket died mid-stream (server restart, connection drop). Settle
+    // the caller with an error instead of letting the rejection escape and
+    // leave busy state stuck forever.
+    errored = true
+    handlers.onError(`Connection lost: ${(err as Error).message}`)
+    return
   }
 
   if (!errored) handlers.onDone()

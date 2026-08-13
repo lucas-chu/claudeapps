@@ -16,6 +16,9 @@ function readBody(req: IncomingMessage): Promise<string> {
 }
 
 function sse(res: ServerResponse, event: string, payload: unknown) {
+  // The client may have disconnected between the last write and this one;
+  // writing to an ended/destroyed response would risk an unhandled 'error'.
+  if (res.writableEnded || res.destroyed) return
   res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`)
 }
 
@@ -61,16 +64,26 @@ export async function handleGenerate(
 
   const client = new Anthropic({ apiKey: config.apiKey, baseURL: config.baseURL })
 
-  try {
-    const stream = client.messages.stream({
-      model: MODEL,
-      max_tokens: MAX_TOKENS,
-      messages,
-      // Search is available, not forced: the model calls it only when the
-      // question needs current information.
-      tools: [webSearchTool],
-    })
+  const stream = client.messages.stream({
+    model: MODEL,
+    max_tokens: MAX_TOKENS,
+    messages,
+    // Search is available, not forced: the model calls it only when the
+    // question needs current information.
+    tools: [webSearchTool],
+  })
 
+  // If the client goes away mid-stream (reload, tab close, server restart on
+  // their end), stop burning tokens against a dead socket instead of running
+  // the request to completion.
+  let clientGone = false
+  const onClose = () => {
+    clientGone = true
+    stream.abort()
+  }
+  req.on('close', onClose)
+
+  try {
     stream.on('text', (text) => sse(res, 'delta', { text }))
 
     const final = await stream.finalMessage()
@@ -89,10 +102,16 @@ export async function handleGenerate(
 
     sse(res, 'done', {})
   } catch (err) {
-    const message = redact((err as Error).message || 'Generation failed')
-    console.error('[generate]', { message, status: (err as { status?: number }).status })
-    sse(res, 'error', { message })
+    // A client-initiated abort surfaces here as a rejected finalMessage()
+    // (APIUserAbortError); the socket is already gone, so there is nothing
+    // to report and nothing to write.
+    if (!clientGone) {
+      const message = redact((err as Error).message || 'Generation failed')
+      console.error('[generate]', { message, status: (err as { status?: number }).status })
+      sse(res, 'error', { message })
+    }
   } finally {
-    res.end()
+    req.off('close', onClose)
+    if (!clientGone && !res.writableEnded) res.end()
   }
 }

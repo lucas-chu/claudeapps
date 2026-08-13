@@ -88,29 +88,31 @@ export function useGeneration(
       },
     })
 
-    await generate(messages, {
-      onDelta: (t) => {
-        if (inPlace) dispatch({ type: 'appendShadow', id: targetId, text: t })
-        else dispatch({ type: 'appendDelta', id: targetId, text: t })
-        dispatch({ type: 'appendTurnDelta', id: turnId, text: t })
-      },
-      onSources: (sources) => {
-        dispatch({ type: 'setBoxSources', id: targetId, sources })
-        dispatch({ type: 'updateTurn', id: turnId, patch: { sources } })
-      },
-      onError: (message) => {
-        if (inPlace) dispatch({ type: 'rollbackShadow', id: targetId, error: message })
-        else dispatch({ type: 'setBoxError', id: targetId, error: message })
-        dispatch({ type: 'updateTurn', id: turnId, patch: { status: 'error', error: message } })
-      },
-      onDone: () => {
-        if (inPlace) dispatch({ type: 'commitShadow', id: targetId })
-        else dispatch({ type: 'setBoxStatus', id: targetId, status: 'idle' })
-        dispatch({ type: 'updateTurn', id: turnId, patch: { status: undefined } })
-      },
-    })
-
-    setBusy(false)
+    try {
+      await generate(messages, {
+        onDelta: (t) => {
+          if (inPlace) dispatch({ type: 'appendShadow', id: targetId, text: t })
+          else dispatch({ type: 'appendDelta', id: targetId, text: t })
+          dispatch({ type: 'appendTurnDelta', id: turnId, text: t })
+        },
+        onSources: (sources) => {
+          dispatch({ type: 'setBoxSources', id: targetId, sources })
+          dispatch({ type: 'updateTurn', id: turnId, patch: { sources } })
+        },
+        onError: (message) => {
+          if (inPlace) dispatch({ type: 'rollbackShadow', id: targetId, error: message })
+          else dispatch({ type: 'setBoxError', id: targetId, error: message })
+          dispatch({ type: 'updateTurn', id: turnId, patch: { status: 'error', error: message } })
+        },
+        onDone: () => {
+          if (inPlace) dispatch({ type: 'commitShadow', id: targetId })
+          else dispatch({ type: 'setBoxStatus', id: targetId, status: 'idle' })
+          dispatch({ type: 'updateTurn', id: turnId, patch: { status: undefined } })
+        },
+      })
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function runChatPrompt(prompt: string): Promise<void> {
@@ -134,15 +136,17 @@ export function useGeneration(
       },
     })
 
-    await generate(messages, {
-      onDelta: (t) => dispatch({ type: 'appendTurnDelta', id: turnId, text: t }),
-      onSources: (sources) => dispatch({ type: 'updateTurn', id: turnId, patch: { sources } }),
-      onError: (message) =>
-        dispatch({ type: 'updateTurn', id: turnId, patch: { status: 'error', error: message } }),
-      onDone: () => dispatch({ type: 'updateTurn', id: turnId, patch: { status: undefined } }),
-    })
-
-    setBusy(false)
+    try {
+      await generate(messages, {
+        onDelta: (t) => dispatch({ type: 'appendTurnDelta', id: turnId, text: t }),
+        onSources: (sources) => dispatch({ type: 'updateTurn', id: turnId, patch: { sources } }),
+        onError: (message) =>
+          dispatch({ type: 'updateTurn', id: turnId, patch: { status: 'error', error: message } }),
+        onDone: () => dispatch({ type: 'updateTurn', id: turnId, patch: { status: undefined } }),
+      })
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function retryBox(boxId: string): Promise<void> {

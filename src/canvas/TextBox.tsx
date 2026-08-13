@@ -39,12 +39,18 @@ export default function TextBox({
         width: box.w * viewport.zoom,
         height: box.h * viewport.zoom,
       }}
-      onPointerDown={(e) => onSelect(e, box.id)}
+      onPointerDown={(e) => {
+        // Alt-drag and middle-drag pan the canvas even when they land on a
+        // box; let the event bubble unstopped so Canvas's handler sees it.
+        if (e.altKey || e.button === 1) return
+        onSelect(e, box.id)
+      }}
     >
       <div
         className="box-header"
         onPointerDown={(e) => {
-          (e.currentTarget as Element).setPointerCapture(e.pointerId)
+          if (e.altKey || e.button === 1) return
+          ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
           onDragStart(e, box.id)
         }}
       >
@@ -125,6 +131,7 @@ export default function TextBox({
             key={h}
             className={`handle handle-${h}`}
             onPointerDown={(e) => {
+              if (e.altKey || e.button === 1) return
               e.stopPropagation()
               ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
               onResizeStart(e, box.id, h)

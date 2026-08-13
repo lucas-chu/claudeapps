@@ -75,4 +75,36 @@ describe('buildMessages', () => {
     const msgs = buildMessages([turn('a', 'user', '   ')], [], 'go')
     expect(msgs).toHaveLength(1)
   })
+
+  it('collapses adjacent same-role messages left by a dropped empty turn', () => {
+    // user, assistant(empty -> dropped), user leaves two adjacent user turns.
+    const history = [
+      turn('a', 'user', 'first question'),
+      turn('b', 'assistant', ''),
+      turn('c', 'user', 'second question'),
+    ]
+    const msgs = buildMessages(history, [], 'third question')
+    const roles = msgs.map((m) => m.role)
+    for (let i = 1; i < roles.length; i++) {
+      expect(roles[i]).not.toBe(roles[i - 1])
+    }
+    // The dropped assistant turn leaves 'first question', 'second question'
+    // and the new prompt all as consecutive user messages; all three merge.
+    expect(msgs).toEqual([
+      { role: 'user', content: 'first question\n\nsecond question\n\nthird question' },
+    ])
+  })
+
+  it('leaves normal alternating history unchanged', () => {
+    const history = [
+      turn('a', 'user', 'hello'),
+      turn('b', 'assistant', 'hi there'),
+    ]
+    const msgs = buildMessages(history, [], 'again')
+    expect(msgs).toEqual([
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: 'hi there' },
+      { role: 'user', content: 'again' },
+    ])
+  })
 })

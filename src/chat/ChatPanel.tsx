@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import type { Action, State } from '../state/store'
 import { blocksToText } from '../state/types'
@@ -14,12 +14,24 @@ export default function ChatPanel({
 }) {
   const [prompt, setPrompt] = useState('')
   const [open, setOpen] = useState(true)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [state.turns])
 
   async function send() {
     const text = prompt.trim()
     if (!text || gen.busy) return
     setPrompt('')
     await gen.runChatPrompt(text)
+  }
+
+  async function retryTurn(i: number) {
+    const prev = state.turns[i - 1]
+    if (!prev || prev.role !== 'user') return
+    await gen.runChatPrompt(blocksToText(prev.blocks))
   }
 
   if (!open) {
@@ -43,14 +55,21 @@ export default function ChatPanel({
         </button>
       </header>
 
-      <div className="chat-scroll">
-        {state.turns.map((t) => (
+      <div className="chat-scroll" ref={scrollRef}>
+        {state.turns.map((t, i) => (
           <div key={t.id} id={`turn-${t.id}`} className={`turn turn-${t.role}`}>
             {t.label && <div className="turn-label">{t.label}</div>}
             <div className="turn-body">
               <ReactMarkdown>{blocksToText(t.blocks)}</ReactMarkdown>
             </div>
-            {t.status === 'error' && <div className="turn-error">{t.error}</div>}
+            {t.status === 'error' && (
+              <div className="turn-error">
+                <span>{t.error}</span>
+                <button className="turn-promote" onClick={() => retryTurn(i)}>
+                  Retry
+                </button>
+              </div>
+            )}
             {t.sources && t.sources.length > 0 && (
               <div className="box-sources">
                 {t.sources.map((s) => (
@@ -60,11 +79,14 @@ export default function ChatPanel({
                 ))}
               </div>
             )}
-            {t.role === 'assistant' && t.status !== 'streaming' && (
-              <button className="turn-promote" onClick={() => onPromote(t.id)}>
-                Send to canvas
-              </button>
-            )}
+            {t.role === 'assistant' &&
+              t.status !== 'streaming' &&
+              t.status !== 'error' &&
+              blocksToText(t.blocks).trim().length > 0 && (
+                <button className="turn-promote" onClick={() => onPromote(t.id)}>
+                  Send to canvas
+                </button>
+              )}
           </div>
         ))}
       </div>

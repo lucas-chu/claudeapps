@@ -38,6 +38,16 @@ describe('boxes', () => {
     expect(s.boxes).toHaveLength(0)
     expect(s.selection).toEqual([])
   })
+
+  it('deletes a box and drops its shadow entry', () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a') })
+    s = reducer(s, { type: 'beginShadow', id: 'a' })
+    s = reducer(s, { type: 'appendShadow', id: 'a', text: 'in flight' })
+    expect(s.shadow.a).toBe('in flight')
+    s = reducer(s, { type: 'deleteBox', id: 'a' })
+    expect(s.shadow.a).toBeUndefined()
+    expect('a' in s.shadow).toBe(false)
+  })
 })
 
 describe('selection', () => {

@@ -84,12 +84,15 @@ export function reducer(state: State, action: Action): State {
         blocks: [{ type: 'text', text: action.text }],
       }))
 
-    case 'deleteBox':
+    case 'deleteBox': {
+      const { [action.id]: _dropShadow, ...shadow } = state.shadow
       return {
         ...state,
         boxes: state.boxes.filter((b) => b.id !== action.id),
         selection: state.selection.filter((id) => id !== action.id),
+        shadow,
       }
+    }
 
     case 'select':
       return { ...state, selection: action.ids }

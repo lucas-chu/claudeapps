@@ -27,6 +27,25 @@ function boxContext(selected: Box[]): string {
   return parts.join('\n\n') + '\n\n'
 }
 
+/**
+ * The Anthropic API requires strict user/assistant alternation. Dropping
+ * empty turns (e.g. an assistant turn that errored before any delta) can
+ * leave two turns of the same role adjacent, so merge runs of the same role
+ * into one message rather than sending them back to back.
+ */
+function collapseAdjacentRoles(messages: ApiMessage[]): ApiMessage[] {
+  const out: ApiMessage[] = []
+  for (const m of messages) {
+    const last = out[out.length - 1]
+    if (last && last.role === m.role) {
+      last.content = `${last.content}\n\n${m.content}`
+    } else {
+      out.push({ ...m })
+    }
+  }
+  return out
+}
+
 export function buildMessages(
   turns: Turn[],
   selected: Box[],
@@ -36,5 +55,10 @@ export function buildMessages(
     .map((t) => ({ role: t.role, content: blocksToText(t.blocks).trim() }))
     .filter((m) => m.content.length > 0)
 
-  return [...history, { role: 'user', content: boxContext(selected) + prompt }]
+  // Collapse across the history/prompt boundary too: a dropped empty turn
+  // can leave the last history message and the new prompt both 'user'.
+  return collapseAdjacentRoles([
+    ...history,
+    { role: 'user', content: boxContext(selected) + prompt },
+  ])
 }
