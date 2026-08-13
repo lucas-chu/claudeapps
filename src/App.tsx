@@ -11,13 +11,21 @@ export default function App() {
   const gen = useGeneration(state, dispatch, size)
 
   useEffect(() => {
-    const measure = () => {
-      const el = shellRef.current
-      if (el) setSize({ w: el.clientWidth, h: el.clientHeight })
+    const el = shellRef.current
+    if (!el) return
+
+    const measure = (w: number, h: number) => {
+      if (w === 0 || h === 0) return
+      setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
     }
-    measure()
-    window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
+
+    measure(el.clientWidth, el.clientHeight)
+
+    const observer = new ResizeObserver(() => {
+      measure(el.clientWidth, el.clientHeight)
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
   }, [])
 
   useEffect(() => {
