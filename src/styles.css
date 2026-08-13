@@ -51,12 +51,12 @@ body {
   padding: 2px 6px; background: #f2f0ec; border-radius: 999px; color: #5c5852; text-decoration: none;
 }
 
-.handle { position: absolute; width: 8px; height: 8px; background: #c2643c; border-radius: 2px; }
-.handle-nw { left: -4px; top: -4px; cursor: nwse-resize; }
-.handle-n  { left: calc(50% - 4px); top: -4px; cursor: ns-resize; }
-.handle-ne { right: -4px; top: -4px; cursor: nesw-resize; }
-.handle-e  { right: -4px; top: calc(50% - 4px); cursor: ew-resize; }
-.handle-se { right: -4px; bottom: -4px; cursor: nwse-resize; }
-.handle-s  { left: calc(50% - 4px); bottom: -4px; cursor: ns-resize; }
-.handle-sw { left: -4px; bottom: -4px; cursor: nesw-resize; }
-.handle-w  { left: -4px; top: calc(50% - 4px); cursor: ew-resize; }
+.handle { position: absolute; width: 10px; height: 10px; background: #c2643c; border-radius: 2px; }
+.handle-nw { left: 0; top: 0; cursor: nwse-resize; }
+.handle-n  { left: calc(50% - 5px); top: 0; cursor: ns-resize; }
+.handle-ne { right: 0; top: 0; cursor: nesw-resize; }
+.handle-e  { right: 0; top: calc(50% - 5px); cursor: ew-resize; }
+.handle-se { right: 0; bottom: 0; cursor: nwse-resize; }
+.handle-s  { left: calc(50% - 5px); bottom: 0; cursor: ns-resize; }
+.handle-sw { left: 0; bottom: 0; cursor: nesw-resize; }
+.handle-w  { left: 0; top: calc(50% - 5px); cursor: ew-resize; }
