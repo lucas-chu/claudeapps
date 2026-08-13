@@ -34,7 +34,19 @@ export type Turn = {
   error?: string
 }
 
-/** Flattens a block list to plain text. Image and html blocks are elided. */
+/** Appends to the trailing text block, creating one when the list is empty or ends in a non-text block. */
+export function appendToBlocks(blocks: Block[], text: string): Block[] {
+  const out = [...blocks]
+  const last = out[out.length - 1]
+  if (last && last.type === 'text') {
+    out[out.length - 1] = { type: 'text', text: last.text + text }
+  } else {
+    out.push({ type: 'text', text })
+  }
+  return out
+}
+
+/** Flattens a block list to plain text. Image blocks are elided; html blocks contribute their markup. */
 export function blocksToText(blocks: Block[]): string {
   return blocks
     .map((b) => (b.type === 'text' ? b.text : b.type === 'html' ? b.html : ''))

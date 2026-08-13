@@ -1,5 +1,6 @@
 import type { Viewport } from '../canvas/geometry'
 import type { Box, Source, Turn } from './types'
+import { appendToBlocks } from './types'
 
 export const MAX_TURNS = 6
 export const MIN_BOX_W = 160
@@ -53,14 +54,7 @@ function mapBox(state: State, id: string, fn: (b: Box) => Box): State {
 
 /** Appends to the trailing text block, creating one if needed. */
 function appendText(box: Box, text: string): Box {
-  const blocks = [...box.blocks]
-  const last = blocks[blocks.length - 1]
-  if (last && last.type === 'text') {
-    blocks[blocks.length - 1] = { type: 'text', text: last.text + text }
-  } else {
-    blocks.push({ type: 'text', text })
-  }
-  return { ...box, blocks }
+  return { ...box, blocks: appendToBlocks(box.blocks, text) }
 }
 
 export function reducer(state: State, action: Action): State {
@@ -197,14 +191,7 @@ export function reducer(state: State, action: Action): State {
         ...state,
         turns: state.turns.map((t) => {
           if (t.id !== action.id) return t
-          const blocks = [...t.blocks]
-          const last = blocks[blocks.length - 1]
-          if (last && last.type === 'text') {
-            blocks[blocks.length - 1] = { type: 'text', text: last.text + action.text }
-          } else {
-            blocks.push({ type: 'text', text: action.text })
-          }
-          return { ...t, blocks }
+          return { ...t, blocks: appendToBlocks(t.blocks, action.text) }
         }),
       }
 

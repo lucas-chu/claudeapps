@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { reducer, initialState, MAX_TURNS } from './store'
+import { blocksToText, appendToBlocks } from './types'
 import type { Box } from './types'
 
 const box = (id: string, over: Partial<Box> = {}): Box => ({
@@ -140,5 +141,74 @@ describe('thread', () => {
     })
     s = reducer(s, { type: 'clearThread' })
     expect(s.turns).toEqual([])
+  })
+})
+
+describe('blocksToText', () => {
+  it('returns a single text block', () => {
+    const result = blocksToText([{ type: 'text', text: 'hello' }])
+    expect(result).toBe('hello')
+  })
+
+  it('concatenates multiple text blocks in order', () => {
+    const result = blocksToText([
+      { type: 'text', text: 'hello' },
+      { type: 'text', text: ' ' },
+      { type: 'text', text: 'world' },
+    ])
+    expect(result).toBe('hello world')
+  })
+
+  it('elides image blocks', () => {
+    const result = blocksToText([
+      { type: 'text', text: 'before' },
+      { type: 'image', mime: 'image/png', data: 'base64data' },
+      { type: 'text', text: 'after' },
+    ])
+    expect(result).toBe('beforeafter')
+  })
+
+  it('includes html block markup', () => {
+    const result = blocksToText([
+      { type: 'text', text: 'text' },
+      { type: 'html', html: '<div>markup</div>' },
+      { type: 'text', text: 'more' },
+    ])
+    expect(result).toBe('text<div>markup</div>more')
+  })
+
+  it('returns empty string for empty list', () => {
+    const result = blocksToText([])
+    expect(result).toBe('')
+  })
+})
+
+describe('appendToBlocks', () => {
+  it('appends to a trailing text block', () => {
+    const blocks = [{ type: 'text', text: 'hello' }]
+    const result = appendToBlocks(blocks, ' world')
+    expect(result).toEqual([{ type: 'text', text: 'hello world' }])
+  })
+
+  it('creates a text block in an empty list', () => {
+    const blocks: typeof blocks = []
+    const result = appendToBlocks(blocks, 'hello')
+    expect(result).toEqual([{ type: 'text', text: 'hello' }])
+  })
+
+  it('pushes a new text block when trailing block is not text', () => {
+    const blocks = [{ type: 'image', mime: 'image/png', data: 'base64' }]
+    const result = appendToBlocks(blocks, 'text')
+    expect(result).toEqual([
+      { type: 'image', mime: 'image/png', data: 'base64' },
+      { type: 'text', text: 'text' },
+    ])
+  })
+
+  it('does not mutate the input array', () => {
+    const blocks = [{ type: 'text', text: 'hello' }]
+    const blocksBefore = [...blocks]
+    appendToBlocks(blocks, ' world')
+    expect(blocks).toEqual(blocksBefore)
   })
 })
