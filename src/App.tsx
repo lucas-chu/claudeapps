@@ -1,29 +1,39 @@
-import { useReducer } from 'react'
+import { useEffect, useReducer, useRef, useState } from 'react'
 import Canvas from './canvas/Canvas'
+import Omnibar from './Omnibar'
+import { useGeneration } from './useGeneration'
 import { reducer, initialState } from './state/store'
 
 export default function App() {
   const [state, dispatch] = useReducer(reducer, initialState)
+  const shellRef = useRef<HTMLDivElement>(null)
+  const [size, setSize] = useState({ w: 1200, h: 800 })
+  const gen = useGeneration(state, dispatch, size)
+
+  useEffect(() => {
+    const measure = () => {
+      const el = shellRef.current
+      if (el) setSize({ w: el.clientWidth, h: el.clientHeight })
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') dispatch({ type: 'clearSelection' })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   return (
     <div className="app">
-      <Canvas state={state} dispatch={dispatch} />
-      <button
-        style={{ position: 'absolute', left: 12, top: 12, zIndex: 10 }}
-        onClick={() =>
-          dispatch({
-            type: 'addBox',
-            box: {
-              id: crypto.randomUUID(),
-              x: 80, y: 80, w: 320, h: 220,
-              blocks: [{ type: 'text', text: '**Drag me.** Resize me. Double-click to edit.' }],
-              render: 'markdown', status: 'idle',
-            },
-          })
-        }
-      >
-        Add box
-      </button>
+      <div className="canvas-shell" ref={shellRef}>
+        <Canvas state={state} dispatch={dispatch} />
+        <Omnibar state={state} gen={gen} />
+      </div>
     </div>
   )
 }

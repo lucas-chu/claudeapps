@@ -62,3 +62,22 @@ body {
 .handle-s  { left: calc(50% - 5px); bottom: -5px; cursor: ns-resize; }
 .handle-sw { left: -5px; bottom: -5px; cursor: nesw-resize; }
 .handle-w  { left: -5px; top: calc(50% - 5px); cursor: ew-resize; }
+
+.canvas-shell { position: relative; flex: 1; display: flex; min-width: 0; }
+
+.omnibar {
+  position: absolute;
+  left: 50%; bottom: 24px; transform: translateX(-50%);
+  display: flex; gap: 8px; align-items: center;
+  width: min(640px, calc(100% - 48px));
+  padding: 8px 8px 8px 14px;
+  background: #fff; border: 1px solid #d8d5cf; border-radius: 999px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .08);
+  z-index: 20;
+}
+.omnibar input { flex: 1; border: 0; outline: none; font: inherit; background: none; }
+.omnibar button {
+  width: 30px; height: 30px; border: 0; border-radius: 50%;
+  background: #c2643c; color: #fff; cursor: pointer;
+}
+.omnibar button:disabled { background: #ddd9d3; cursor: default; }
