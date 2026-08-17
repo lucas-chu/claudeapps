@@ -2,7 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import Canvas from './canvas/Canvas'
 import Omnibar from './Omnibar'
 import ChatPanel from './chat/ChatPanel'
-import { useGeneration } from './useGeneration'
+import { useGeneration, BOX_BUSY_MESSAGE } from './useGeneration'
 import { reducer, initialState, MIN_BOX_W, MIN_BOX_H } from './state/store'
 import { load, save } from './state/persist'
 import { findCenterSlot, findFreeSlot, screenToWorld, type Point, type Rect } from './canvas/geometry'
@@ -31,13 +31,16 @@ export default function App() {
   // by a canvas full of images), so the toast fires once per failure streak
   // instead of every 500ms, and clears again the moment a save succeeds.
   const autosaveFailing = useRef(false)
-  const gen = useGeneration(state, dispatch, size)
 
   const showToast = (message: string) => {
     setToast(message)
     if (toastTimer.current) clearTimeout(toastTimer.current)
     toastTimer.current = setTimeout(() => setToast(null), 2000)
   }
+  // A prompt that targets a box already mid-generation is declined rather
+  // than queued or interleaved (see useGeneration's same-box guard) — this
+  // is how the user finds out why nothing happened.
+  const gen = useGeneration(state, dispatch, size, () => showToast(BOX_BUSY_MESSAGE))
   useEffect(() => () => {
     if (toastTimer.current) clearTimeout(toastTimer.current)
   }, [])

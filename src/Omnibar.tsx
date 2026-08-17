@@ -13,9 +13,14 @@ export default function Omnibar({
 
   const selected: Box[] = state.boxes.filter((b) => state.selection.includes(b.id))
 
+  // Submitting clears the input right away — generations run concurrently
+  // now, so there's no reason to make the user wait before typing the next
+  // prompt. A prompt whose target box is already streaming isn't queued: it
+  // is declined by useGeneration's same-box guard, which surfaces a toast
+  // (see App.tsx's onBusyBox) rather than silently discarding it.
   async function run() {
     const text = prompt.trim()
-    if (!text || gen.busy) return
+    if (!text) return
     setPrompt('')
     await gen.runCanvasPrompt(text, selected)
   }
@@ -34,14 +39,16 @@ export default function Omnibar({
       <input
         value={prompt}
         placeholder={hint}
-        disabled={gen.busy}
         onChange={(e) => setPrompt(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') run()
         }}
       />
-      <button onClick={run} disabled={gen.busy || !prompt.trim()}>
-        {gen.busy ? '…' : '↵'}
+      {gen.activeCount > 0 && (
+        <span className="omnibar-running">{gen.activeCount} running</span>
+      )}
+      <button onClick={run} disabled={!prompt.trim()}>
+        ↵
       </button>
     </div>
   )

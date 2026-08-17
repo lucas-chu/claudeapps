@@ -46,9 +46,12 @@ export default function ChatPanel({
     if (el) el.scrollTop = el.scrollHeight
   }, [state.turns])
 
+  // Submitting clears the input right away so the next message can be typed
+  // immediately — chat generations run concurrently, each streaming into its
+  // own turn, so there's nothing to wait on here.
   async function send() {
     const text = prompt.trim()
-    if (!text || gen.busy) return
+    if (!text) return
     setPrompt('')
     await gen.runChatPrompt(text)
   }
@@ -128,14 +131,13 @@ export default function ChatPanel({
         <input
           value={prompt}
           placeholder="Message Claude…"
-          disabled={gen.busy}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') send()
           }}
         />
-        <button onClick={send} disabled={gen.busy || !prompt.trim()}>
-          {gen.busy ? '…' : '↵'}
+        <button onClick={send} disabled={!prompt.trim()}>
+          ↵
         </button>
       </div>
     </aside>
