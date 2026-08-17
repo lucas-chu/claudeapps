@@ -1,0 +1,30 @@
+# Teammate identity — create THREE of these, changing only the two names to
+# "Teammate One" / "Teammate Two" / "Teammate Three".
+#
+# These apps never listen: no Socket Mode, no event subscriptions. Their tokens
+# are used only to post, so each hired teammate speaks under its own identity.
+#
+# If Slack rejects `users.profile:write` as a bot scope in your workspace,
+# delete that line and re-paste. The teammate will still post under its own
+# name and emoji; only @-autocomplete will show the pool app's name. See
+# slack/SETUP.md -> "If the rename doesn't stick".
+display_information:
+  name: Teammate One
+  description: A hireable AI teammate. ClaudeFather assigns its personality.
+  background_color: "#4a154b"
+features:
+  bot_user:
+    display_name: Teammate One
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - chat:write.customize
+      - users.profile:write
+settings:
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
