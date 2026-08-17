@@ -58,6 +58,35 @@ export function resolveCanvasTarget(selected: Box[], retryTargetId?: string): Ca
   return { kind: 'new' }
 }
 
+export type ResolvedTarget = CanvasTarget | { kind: 'declined'; targetId: string }
+
+/**
+ * Decides where a prompt's answer goes once in-flight generations are taken
+ * into account.
+ *
+ * The subtle case is rapid-fire prompting, which is the whole point of running
+ * generations in parallel. Creating a box auto-selects it, so the very next
+ * prompt resolves to an in-place rewrite of a box that is still streaming.
+ * Declining there makes every prompt after the first silently do nothing.
+ * Instead an ordinary prompt falls back to a new box: you cannot rewrite text
+ * that is still being written, but you can certainly have another answer.
+ *
+ * A retry is different — it names one specific box by design, so there is no
+ * sensible substitute and it is declined so the caller can say why.
+ */
+export function resolveTargetWithBusy(
+  selected: Box[],
+  retryTargetId: string | undefined,
+  isBusy: (boxId: string) => boolean,
+): ResolvedTarget {
+  const target = resolveCanvasTarget(selected, retryTargetId)
+  if (target.kind === 'inPlace' && isBusy(target.targetId)) {
+    if (retryTargetId) return { kind: 'declined', targetId: target.targetId }
+    return { kind: 'new' }
+  }
+  return target
+}
+
 export function useGeneration(
   state: State,
   dispatch: (a: Action) => void,
@@ -131,8 +160,10 @@ export function useGeneration(
     selected: Box[],
     retryTargetId?: string,
   ): Promise<void> {
-    const target = resolveCanvasTarget(selected, retryTargetId)
-    if (target.kind === 'inPlace' && isBoxActive(activeRef.current, target.targetId)) {
+    const target = resolveTargetWithBusy(selected, retryTargetId, (id) =>
+      isBoxActive(activeRef.current, id),
+    )
+    if (target.kind === 'declined') {
       onBusyBoxRef.current?.(target.targetId)
       return
     }

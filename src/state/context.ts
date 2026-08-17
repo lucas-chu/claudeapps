@@ -22,8 +22,37 @@ export const MAX_IMAGES_PER_REQUEST = 5
  * Keeps the most recent turns and shortens long assistant replies. Full box
  * contents are supplied explicitly by selection, so history stays cheap.
  */
+/**
+ * Drops exchanges that haven't finished yet.
+ *
+ * This matters once generations run in parallel. Firing three prompts in a row
+ * leaves three user turns in the thread whose assistant replies are all still
+ * streaming. Without this filter, prompt 2's history contains prompt 1's
+ * unanswered question — and since adjacent same-role messages are collapsed,
+ * the model receives "name a fish\n\nname a bird" as one message and dutifully
+ * answers both. Observed live: three rapid prompts produced boxes reading
+ * "Fish: clownfish. Bird: robin."
+ *
+ * A user turn is only context once it has a completed assistant reply, so an
+ * in-flight or errored pair is excluded until it settles.
+ */
+export function completedTurns(turns: Turn[]): Turn[] {
+  const out: Turn[] = []
+  for (let i = 0; i < turns.length; i++) {
+    const turn = turns[i]
+    if (turn.status === 'streaming' || turn.status === 'error') continue
+    if (turn.role === 'user') {
+      const reply = turns[i + 1]
+      const answered = reply?.role === 'assistant' && !reply.status
+      if (!answered) continue
+    }
+    out.push(turn)
+  }
+  return out
+}
+
 export function trimTurns(turns: Turn[], max = MAX_TURNS): Turn[] {
-  return turns.slice(-max).map((t) => {
+  return completedTurns(turns).slice(-max).map((t) => {
     const text = blocksToText(t.blocks)
     if (text.length <= EXCERPT_LIMIT) return t
     return { ...t, blocks: [{ type: 'text', text: text.slice(0, EXCERPT_LIMIT) + '…' }] }
@@ -102,7 +131,7 @@ function omissionNote(omitted: number): string {
  * first, then a single combined text block, preserving the image-before-text
  * ordering the API requires.
  */
-function mergeContent(a: ApiMessage['content'], b: ApiMessage['content']): ApiMessage['content'] {
+export function mergeContent(a: ApiMessage['content'], b: ApiMessage['content']): ApiMessage['content'] {
   if (typeof a === 'string' && typeof b === 'string') return `${a}\n\n${b}`
 
   const toBlocks = (c: ApiMessage['content']): ContentBlock[] =>

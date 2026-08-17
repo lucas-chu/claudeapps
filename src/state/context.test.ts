@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildMessages, trimTurns, EXCERPT_LIMIT, MAX_IMAGES_PER_REQUEST, type ContentBlock } from './context'
+import { buildMessages, completedTurns, mergeContent, trimTurns, EXCERPT_LIMIT, MAX_IMAGES_PER_REQUEST, type ContentBlock } from './context'
 import { MAX_TURNS } from './store'
 import type { Box, Turn } from './types'
 
@@ -42,15 +42,19 @@ function asBlocks(content: string | ContentBlock[]): ContentBlock[] {
 
 describe('trimTurns', () => {
   it('keeps only the most recent MAX_TURNS', () => {
-    const turns = Array.from({ length: 20 }, (_, i) => turn(`t${i}`, 'user', `m${i}`))
+    // Completed pairs: a bare run of unanswered user turns is not something
+    // the app can produce, and is now correctly excluded as in-flight.
+    const turns = Array.from({ length: 20 }, (_, i) =>
+      turn(`t${i}`, i % 2 === 0 ? 'user' : 'assistant', `m${i}`),
+    )
     const kept = trimTurns(turns)
     expect(kept).toHaveLength(MAX_TURNS)
     expect(kept[kept.length - 1].id).toBe('t19')
   })
 
   it('leaves a short thread alone', () => {
-    const turns = [turn('a', 'user', 'x')]
-    expect(trimTurns(turns)).toHaveLength(1)
+    const turns = [turn('a', 'user', 'x'), turn('b', 'assistant', 'y')]
+    expect(trimTurns(turns)).toHaveLength(2)
   })
 
   it('truncates long assistant turns to an excerpt', () => {
@@ -103,23 +107,22 @@ describe('buildMessages', () => {
     expect(msgs).toHaveLength(1)
   })
 
-  it('collapses adjacent same-role messages left by a dropped empty turn', () => {
-    // user, assistant(empty -> dropped), user leaves two adjacent user turns.
-    const history = [
-      turn('a', 'user', 'first question'),
-      turn('b', 'assistant', ''),
-      turn('c', 'user', 'second question'),
-    ]
-    const msgs = buildMessages(history, [], 'third question')
-    const roles = msgs.map((m) => m.role)
-    for (let i = 1; i < roles.length; i++) {
-      expect(roles[i]).not.toBe(roles[i - 1])
-    }
-    // The dropped assistant turn leaves 'first question', 'second question'
-    // and the new prompt all as consecutive user messages; all three merge.
-    expect(msgs).toEqual([
-      { role: 'user', content: 'first question\n\nsecond question\n\nthird question' },
-    ])
+  it('merges adjacent same-role content rather than sending two in a row', () => {
+    // completedTurns now removes unanswered/errored pairs upstream, so this
+    // adjacency is no longer reachable through buildMessages. mergeContent is
+    // kept as defence in depth and is tested directly.
+    expect(mergeContent('first question', 'second question')).toBe(
+      'first question\n\nsecond question',
+    )
+  })
+
+  it('merges block content keeping every image before the combined text', () => {
+    const img = { type: 'image' as const, source: { type: 'base64' as const, media_type: 'image/png', data: 'AAA' } }
+    const merged = mergeContent([img, { type: 'text', text: 'a' }], 'b')
+    expect(Array.isArray(merged)).toBe(true)
+    const blocks = merged as { type: string }[]
+    expect(blocks[0].type).toBe('image')
+    expect(blocks[blocks.length - 1]).toEqual({ type: 'text', text: 'a\n\nb' })
   })
 
   it('leaves normal alternating history unchanged', () => {
@@ -205,5 +208,50 @@ describe('buildMessages with images', () => {
     }
     // The final message is the one that actually carries the image.
     expect(Array.isArray(msgs[msgs.length - 1].content)).toBe(true)
+  })
+})
+
+describe('completedTurns (parallel-generation safety)', () => {
+  const t = (id: string, role: 'user' | 'assistant', text: string, status?: 'streaming' | 'error'): Turn =>
+    ({ id, role, blocks: [{ type: 'text', text }], ...(status ? { status } : {}) })
+
+  it('keeps a finished user/assistant pair', () => {
+    const turns = [t('u1', 'user', 'hi'), t('a1', 'assistant', 'hello')]
+    expect(completedTurns(turns).map((x) => x.id)).toEqual(['u1', 'a1'])
+  })
+
+  it('drops a user turn whose reply is still streaming', () => {
+    const turns = [t('u1', 'user', 'hi'), t('a1', 'assistant', '', 'streaming')]
+    expect(completedTurns(turns)).toEqual([])
+  })
+
+  it('drops a user turn with no reply at all yet', () => {
+    expect(completedTurns([t('u1', 'user', 'hi')])).toEqual([])
+  })
+
+  it('excludes in-flight prompts so parallel generations do not answer each other', () => {
+    // Three rapid-fire prompts: only the first has landed.
+    const turns = [
+      t('u1', 'user', 'name a fish'), t('a1', 'assistant', 'salmon'),
+      t('u2', 'user', 'name a bird'), t('a2', 'assistant', '', 'streaming'),
+      t('u3', 'user', 'name an insect'), t('a3', 'assistant', '', 'streaming'),
+    ]
+    expect(completedTurns(turns).map((x) => x.id)).toEqual(['u1', 'a1'])
+  })
+
+  it('drops an errored exchange', () => {
+    const turns = [t('u1', 'user', 'hi'), t('a1', 'assistant', 'boom', 'error')]
+    expect(completedTurns(turns)).toEqual([])
+  })
+
+  it('buildMessages sees only settled history', () => {
+    const turns = [
+      t('u1', 'user', 'first'), t('a1', 'assistant', 'done'),
+      t('u2', 'user', 'in flight'), t('a2', 'assistant', '', 'streaming'),
+    ]
+    const msgs = buildMessages(turns, [], 'new prompt')
+    const history = msgs.slice(0, -1).map((m) => m.content).join(' ')
+    expect(history).toContain('first')
+    expect(history).not.toContain('in flight')
   })
 })

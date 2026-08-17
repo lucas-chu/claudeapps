@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { describeAction, isBoxActive, resolveCanvasTarget, type ActiveGenerations } from './useGeneration'
+import { resolveTargetWithBusy, describeAction, isBoxActive, resolveCanvasTarget, type ActiveGenerations } from './useGeneration'
 import type { Block, Box } from './state/types'
 
 describe('describeAction', () => {
@@ -75,5 +75,40 @@ describe('resolveCanvasTarget', () => {
   it('creates a new box when 2+ boxes are selected', () => {
     const boxes = [makeBox('box-1'), makeBox('box-2')]
     expect(resolveCanvasTarget(boxes)).toEqual({ kind: 'new' })
+  })
+})
+
+describe('resolveTargetWithBusy', () => {
+  const box = (id: string, blocks: Block[] = [{ type: 'text', text: 'hi' }]): Box => ({
+    id, x: 0, y: 0, w: 360, h: 260, blocks, render: 'markdown', status: 'idle',
+  })
+  const idle = () => false
+  const allBusy = () => true
+
+  it('rewrites in place when the single selected box is free', () => {
+    expect(resolveTargetWithBusy([box('a')], undefined, idle)).toEqual({ kind: 'inPlace', targetId: 'a' })
+  })
+
+  it('falls back to a new box when the selected box is mid-stream', () => {
+    // This is rapid-fire prompting: the previous answer auto-selected its box
+    // and is still streaming. Declining here would silently drop the prompt.
+    expect(resolveTargetWithBusy([box('a')], undefined, allBusy)).toEqual({ kind: 'new' })
+  })
+
+  it('declines a retry aimed at a box that is mid-stream', () => {
+    expect(resolveTargetWithBusy([], 'a', allBusy)).toEqual({ kind: 'declined', targetId: 'a' })
+  })
+
+  it('allows a retry once that box is free', () => {
+    expect(resolveTargetWithBusy([], 'a', idle)).toEqual({ kind: 'inPlace', targetId: 'a' })
+  })
+
+  it('always makes a new box for a multi-box selection, busy or not', () => {
+    expect(resolveTargetWithBusy([box('a'), box('b')], undefined, allBusy)).toEqual({ kind: 'new' })
+  })
+
+  it('always makes a new box for an image-only selection', () => {
+    const img = box('a', [{ type: 'image', mime: 'image/png', data: 'x' }])
+    expect(resolveTargetWithBusy([img], undefined, idle)).toEqual({ kind: 'new' })
   })
 })
