@@ -4,6 +4,7 @@ import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
 import type { Viewport } from './geometry'
 import { worldToScreen } from './geometry'
+import DrawingBox from './DrawingBox'
 import type { Action } from '../state/store'
 import { blocksToText, type Box } from '../state/types'
 import { toggleWrap, toggleLinePrefix, toggleOrderedList, insertLink, type EditResult } from '../lib/markdownActions'
@@ -131,12 +132,14 @@ function TextBox({
   // stream without committing over the original until it succeeds.
   const text = shadowText !== undefined ? shadowText : blocksToText(box.blocks)
   const imageOnly = box.blocks.length > 0 && box.blocks.every((b) => b.type === 'image')
+  const drawingOnly = box.blocks.length > 0 && box.blocks.every((b) => b.type === 'drawing')
 
   // A box created via "+ New box" enters edit mode immediately, once, so the
-  // user can start typing without a double-click. Image-only boxes never
-  // edit as markdown, so they never consume autoEdit either.
+  // user can start typing without a double-click. Image-only and
+  // drawing-only boxes never edit as markdown, so they never consume
+  // autoEdit either.
   useEffect(() => {
-    if (autoEdit && !imageOnly) {
+    if (autoEdit && !imageOnly && !drawingOnly) {
       setEditing(true)
       onAutoEditConsumed?.()
     }
@@ -301,10 +304,10 @@ function TextBox({
       </div>
 
       <div
-        className="box-body"
+        className={`box-body ${drawingOnly ? 'box-body-drawing' : ''}`}
         ref={bodyRef}
         onDoubleClick={() => {
-          if (imageOnly) return
+          if (imageOnly || drawingOnly) return
           setEditing(true)
         }}
       >
@@ -387,6 +390,8 @@ function TextBox({
           <div className="thinking" aria-label="Thinking">
             <span /><span /><span />
           </div>
+        ) : drawingOnly ? (
+          <DrawingBox box={box} dispatch={dispatch} />
         ) : imageOnly ? (
           <div className="box-blocks">
             {box.blocks.map((block, i) =>

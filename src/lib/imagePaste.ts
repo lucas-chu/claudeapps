@@ -1,4 +1,5 @@
 export type DownscaledImage = { data: string; mime: string; width: number; height: number }
+export type DownscaledCanvas = { data: string; width: number; height: number }
 
 /**
  * MIME types every major browser can decode in an <img>, best first.
@@ -84,6 +85,39 @@ export function sortImageCandidates(files: File[]): File[] {
 }
 
 /**
+ * Draws `source` (already decoded/rendered — an <img>, a <canvas>, ...) onto
+ * a fresh canvas downscaled so its longest edge is at most `maxEdge` (never
+ * upscaling), and encodes the result as a data URL.
+ *
+ * This is the shared 1280px-long-edge convention: `fileToDownscaledDataUrl`
+ * below uses it for pasted/dropped images, and the Excalidraw drawing-box
+ * preview pipeline (see canvas/ExcalidrawScene.tsx) uses it too, so the rule
+ * — and the reason for it (autosave's ~5MB localStorage budget) — lives in
+ * exactly one place.
+ */
+export function downscaleToDataUrl(
+  source: CanvasImageSource,
+  srcW: number,
+  srcH: number,
+  opts: { maxEdge?: number; mime?: 'image/png' | 'image/jpeg'; quality?: number } = {},
+): DownscaledCanvas {
+  const { maxEdge = 1280, mime = 'image/png', quality } = opts
+  const scale = Math.min(1, maxEdge / Math.max(srcW, srcH))
+  const width = Math.max(1, Math.round(srcW * scale))
+  const height = Math.max(1, Math.round(srcH * scale))
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('canvas 2d context unavailable')
+  ctx.drawImage(source, 0, 0, width, height)
+
+  const data = quality !== undefined ? canvas.toDataURL(mime, quality) : canvas.toDataURL(mime)
+  return { data, width, height }
+}
+
+/**
  * Decodes an image file, downscales it so its longest edge is at most
  * `maxEdge` (never upscaling), and re-encodes it as a data URL.
  *
@@ -140,26 +174,13 @@ export async function fileToDownscaledDataUrl(
           return
         }
 
-        const scale = Math.min(1, maxEdge / Math.max(srcW, srcH))
-        const width = Math.max(1, Math.round(srcW * scale))
-        const height = Math.max(1, Math.round(srcH * scale))
-
-        const canvas = document.createElement('canvas')
-        canvas.width = width
-        canvas.height = height
-        const ctx = canvas.getContext('2d')
-        if (!ctx) {
-          cleanup()
-          reject(new Error('canvas 2d context unavailable'))
-          return
-        }
-        ctx.drawImage(img, 0, 0, width, height)
-
         // PNG is the only source format we treat as possibly transparent;
         // everything else re-encodes as JPEG to keep the data URL small.
         const usePng = file.type === 'image/png'
         const mime = usePng ? 'image/png' : 'image/jpeg'
-        const data = usePng ? canvas.toDataURL(mime) : canvas.toDataURL(mime, 0.85)
+        const { data, width, height } = downscaleToDataUrl(img, srcW, srcH, {
+          maxEdge, mime, quality: usePng ? undefined : 0.85,
+        })
 
         cleanup()
         resolve({ data, mime, width, height })

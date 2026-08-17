@@ -4,6 +4,15 @@ export type Block =
   | { type: 'text'; text: string }
   | { type: 'image'; mime: string; data: string }
   | { type: 'html'; html: string }
+  /**
+   * A freehand/shape/text drawing made with Excalidraw. `elements` is
+   * Excalidraw's own serialisable scene format (kept as `unknown[]` here so
+   * this module never depends on the Excalidraw package). `preview` is a
+   * downscaled PNG data URL regenerated whenever editing settles — it is
+   * what lets vision (see state/context.ts) "see" the drawing; a drawing
+   * with no preview yet is simply skipped rather than sent broken.
+   */
+  | { type: 'drawing'; elements: unknown[]; appState?: unknown; preview?: string }
 
 export type BoxStatus = 'idle' | 'streaming' | 'error'
 
@@ -50,7 +59,11 @@ export function appendToBlocks(blocks: Block[], text: string): Block[] {
   return out
 }
 
-/** Flattens a block list to plain text. Image blocks are elided; html blocks contribute their markup. */
+/**
+ * Flattens a block list to plain text. Image and drawing blocks are elided
+ * (a drawing's content lives in `elements`/`preview`, not text); html blocks
+ * contribute their markup.
+ */
 export function blocksToText(blocks: Block[]): string {
   return blocks
     .map((b) => (b.type === 'text' ? b.text : b.type === 'html' ? b.html : ''))
@@ -60,4 +73,9 @@ export function blocksToText(blocks: Block[]): string {
 /** True when a box holds only image blocks — an in-place text rewrite would destroy it. */
 export function isImageOnlyBox(blocks: Block[]): boolean {
   return blocks.length > 0 && blocks.every((b) => b.type === 'image')
+}
+
+/** True when a box holds only a drawing block — an in-place text rewrite would destroy it. */
+export function isDrawingOnlyBox(blocks: Block[]): boolean {
+  return blocks.length > 0 && blocks.every((b) => b.type === 'drawing')
 }

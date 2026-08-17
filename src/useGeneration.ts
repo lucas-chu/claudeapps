@@ -4,7 +4,7 @@ import { createRevealPacer, type RevealPacer } from './lib/revealPacer'
 import { buildMessages } from './state/context'
 import { findCenterSlot } from './canvas/geometry'
 import type { Action, State } from './state/store'
-import { blocksToText, isImageOnlyBox, type Box } from './state/types'
+import { blocksToText, isDrawingOnlyBox, isImageOnlyBox, type Box } from './state/types'
 
 const NEW_BOX = { w: 360, h: 260 }
 
@@ -12,13 +12,30 @@ const NEW_BOX = { w: 360, h: 260 }
 export const BOX_BUSY_MESSAGE = 'That box is already being written'
 
 /**
- * `singleBoxIsImageOnly` only changes the result when exactly one box is
- * selected — it is ignored (and defaults to false) for every other count, so
- * existing callers passing just a count keep their exact prior output.
+ * Classifies a single selected box for the purposes of the in-place-rewrite
+ * guard below: `false` unless exactly one box is selected and it holds only
+ * non-text content (image or drawing) that a text rewrite would destroy.
  */
-export function describeAction(selectionCount: number, singleBoxIsImageOnly = false): string {
+function singleBoxKind(selected: Box[]): false | 'image' | 'drawing' {
+  if (selected.length !== 1) return false
+  if (isImageOnlyBox(selected[0].blocks)) return 'image'
+  if (isDrawingOnlyBox(selected[0].blocks)) return 'drawing'
+  return false
+}
+
+/**
+ * `singleBoxKind` only changes the result when exactly one box is selected
+ * and it is image- or drawing-only — it is ignored (and defaults to false)
+ * for every other case, so existing callers passing just a count keep their
+ * exact prior output.
+ */
+export function describeAction(selectionCount: number, singleBoxKind: false | 'image' | 'drawing' = false): string {
   if (selectionCount === 0) return 'created a box'
-  if (selectionCount === 1) return singleBoxIsImageOnly ? 'answered about an image' : 'edited a box'
+  if (selectionCount === 1) {
+    if (singleBoxKind === 'image') return 'answered about an image'
+    if (singleBoxKind === 'drawing') return 'answered about a drawing'
+    return 'edited a box'
+  }
   return `used ${selectionCount} boxes as context`
 }
 
@@ -45,14 +62,13 @@ export type CanvasTarget =
 /**
  * Decides which box (if any) a canvas prompt would write into, before any
  * dispatch happens. A retry always rewrites its own box; a single selected
- * box that isn't image-only rewrites in place; everything else (nothing
- * selected, 2+ selected, or a single image-only box) lands in a new box and
- * can never collide with another generation.
+ * box that isn't image-only or drawing-only rewrites in place; everything
+ * else (nothing selected, 2+ selected, or a single image-only/drawing-only
+ * box) lands in a new box and can never collide with another generation.
  */
 export function resolveCanvasTarget(selected: Box[], retryTargetId?: string): CanvasTarget {
   if (retryTargetId) return { kind: 'inPlace', targetId: retryTargetId }
-  const singleSelectedIsImageOnly = selected.length === 1 && isImageOnlyBox(selected[0].blocks)
-  if (selected.length === 1 && !singleSelectedIsImageOnly) {
+  if (selected.length === 1 && !singleBoxKind(selected)) {
     return { kind: 'inPlace', targetId: selected[0].id }
   }
   return { kind: 'new' }
@@ -184,11 +200,11 @@ export function useGeneration(
       // now — those belong to their own submit-time snapshots, not this one.
       const messages = buildMessages(state.turns, selected, prompt)
 
-      // A single selected box that holds only images would be destroyed by
-      // the in-place rewrite below (it replaces a box's blocks with plain
-      // text), so it is treated like a 2+ selection instead: the answer
-      // lands in a new box and the photo is left untouched.
-      const singleSelectedIsImageOnly = selected.length === 1 && isImageOnlyBox(selected[0].blocks)
+      // A single selected box that holds only an image or a drawing would be
+      // destroyed by the in-place rewrite below (it replaces a box's blocks
+      // with plain text), so it is treated like a 2+ selection instead: the
+      // answer lands in a new box and the image/drawing is left untouched.
+      const singleKind = singleBoxKind(selected)
 
       // Every canvas prompt enters the same thread the chat panel shows, so
       // the history the model sees is exactly what the user can read.
@@ -198,7 +214,7 @@ export function useGeneration(
           id: crypto.randomUUID(),
           role: 'user',
           blocks: [{ type: 'text', text: prompt }],
-          label: `→ ${retryTargetId ? 'retried a box' : describeAction(selected.length, singleSelectedIsImageOnly)}`,
+          label: `→ ${retryTargetId ? 'retried a box' : describeAction(selected.length, singleKind)}`,
         },
       })
 

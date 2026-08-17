@@ -82,6 +82,47 @@ describe('box titles', () => {
   })
 })
 
+describe('drawing boxes', () => {
+  it('setBoxDrawing replaces blocks with a single drawing block', () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a') })
+    s = reducer(s, {
+      type: 'setBoxDrawing',
+      id: 'a',
+      elements: [{ id: 'el1', type: 'rectangle' }],
+      appState: { viewBackgroundColor: '#ffffff' },
+      preview: 'data:image/png;base64,AAA',
+    })
+    expect(s.boxes[0].blocks).toEqual([{
+      type: 'drawing',
+      elements: [{ id: 'el1', type: 'rectangle' }],
+      appState: { viewBackgroundColor: '#ffffff' },
+      preview: 'data:image/png;base64,AAA',
+    }])
+  })
+
+  it('setBoxDrawing works with no appState or preview yet', () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a') })
+    s = reducer(s, { type: 'setBoxDrawing', id: 'a', elements: [] })
+    expect(s.boxes[0].blocks).toEqual([{ type: 'drawing', elements: [], appState: undefined, preview: undefined }])
+  })
+
+  it('setBoxDrawing preserves every other box field', () => {
+    let s = reducer(initialState, {
+      type: 'addBox',
+      box: box('a', { title: 'My drawing', titleEdited: true, x: 10, y: 20, w: 480, h: 360 }),
+    })
+    s = reducer(s, { type: 'setBoxDrawing', id: 'a', elements: [] })
+    expect(s.boxes[0]).toMatchObject({ title: 'My drawing', titleEdited: true, x: 10, y: 20, w: 480, h: 360 })
+  })
+
+  it('setBoxDrawing does not affect other boxes', () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a') })
+    s = reducer(s, { type: 'addBox', box: box('b') })
+    s = reducer(s, { type: 'setBoxDrawing', id: 'a', elements: [{ id: 'x' }] })
+    expect(s.boxes.find((b) => b.id === 'b')?.blocks).toEqual([{ type: 'text', text: '' }])
+  })
+})
+
 describe('selection', () => {
   const twoBoxes = () => {
     let s = reducer(initialState, { type: 'addBox', box: box('a') })
@@ -205,6 +246,15 @@ describe('blocksToText', () => {
     const result = blocksToText([
       { type: 'text', text: 'before' },
       { type: 'image', mime: 'image/png', data: 'base64data' },
+      { type: 'text', text: 'after' },
+    ])
+    expect(result).toBe('beforeafter')
+  })
+
+  it('elides drawing blocks', () => {
+    const result = blocksToText([
+      { type: 'text', text: 'before' },
+      { type: 'drawing', elements: [{ id: 'el1' }], preview: 'data:image/png;base64,AAA' },
       { type: 'text', text: 'after' },
     ])
     expect(result).toBe('beforeafter')

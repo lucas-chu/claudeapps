@@ -28,6 +28,12 @@ const mixedBox = (id: string, text: string, data: string, mime = 'image/jpeg'): 
   render: 'markdown', status: 'idle',
 })
 
+const drawingBox = (id: string, preview?: string): Box => ({
+  id, x: 0, y: 0, w: 480, h: 360,
+  blocks: [{ type: 'drawing', elements: [{ id: 'el1' }], preview }],
+  render: 'markdown', status: 'idle',
+})
+
 /** Asserts content is a string and narrows it for TS, rather than trusting the union blindly. */
 function asString(content: string | ContentBlock[]): string {
   if (typeof content !== 'string') throw new Error('expected string content, got blocks')
@@ -196,6 +202,40 @@ describe('buildMessages with images', () => {
     // No valid image survived, so this falls back to the plain-string shape
     // exactly as a text-only (empty) selection would.
     expect(typeof msgs[msgs.length - 1].content).toBe('string')
+  })
+
+  it('sends a drawing box preview as an image block', () => {
+    const msgs = buildMessages([], [drawingBox('d1', 'data:image/png;base64,AAAA')], 'what did I draw?')
+    const content = asBlocks(msgs[msgs.length - 1].content)
+
+    expect(content).toHaveLength(2)
+    expect(content[0]).toEqual({
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'AAAA' },
+    })
+    const textBlock = content[1] as Extract<ContentBlock, { type: 'text' }>
+    expect(textBlock.text).toContain('what did I draw?')
+  })
+
+  it('skips a drawing box with no preview yet rather than sending it broken', () => {
+    const msgs = buildMessages([], [drawingBox('d1')], 'what did I draw?')
+    // No preview to send, so this falls back to the plain-string shape
+    // exactly as a text-only (empty) selection would.
+    expect(typeof msgs[msgs.length - 1].content).toBe('string')
+  })
+
+  it('caps images at 5 per request across a mix of image and drawing boxes', () => {
+    const boxes = [
+      ...Array.from({ length: 3 }, (_, i) => imageBox(`i${i}`, `data:image/jpeg;base64,AAAA${i}`)),
+      ...Array.from({ length: 3 }, (_, i) => drawingBox(`d${i}`, `data:image/png;base64,BBBB${i}`)),
+    ]
+    const msgs = buildMessages([], boxes, 'go')
+    const content = asBlocks(msgs[msgs.length - 1].content)
+
+    const images = content.filter((b) => b.type === 'image')
+    expect(images).toHaveLength(MAX_IMAGES_PER_REQUEST)
+    const textBlock = content.find((b) => b.type === 'text') as Extract<ContentBlock, { type: 'text' }>
+    expect(textBlock.text).toContain('1 more image')
   })
 
   it('never puts image blocks into history messages, only the final prompt', () => {

@@ -28,6 +28,7 @@ export type Action =
   | { type: 'moveBox'; id: string; x: number; y: number }
   | { type: 'resizeBox'; id: string; x: number; y: number; w: number; h: number }
   | { type: 'setBoxText'; id: string; text: string }
+  | { type: 'setBoxDrawing'; id: string; elements: unknown[]; appState?: unknown; preview?: string }
   | { type: 'deleteBox'; id: string }
   | { type: 'select'; ids: string[] }
   | { type: 'toggleSelect'; id: string }
@@ -84,6 +85,19 @@ export function reducer(state: State, action: Action): State {
       return mapBox(state, action.id, (b) => ({
         ...b,
         blocks: [{ type: 'text', text: action.text }],
+      }))
+
+    // Replaces a box's blocks with a single drawing block, preserving every
+    // other box field (position, size, title, ...) via mapBox's spread.
+    case 'setBoxDrawing':
+      return mapBox(state, action.id, (b) => ({
+        ...b,
+        blocks: [{
+          type: 'drawing',
+          elements: action.elements,
+          appState: action.appState,
+          preview: action.preview,
+        }],
       }))
 
     case 'deleteBox': {

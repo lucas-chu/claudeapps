@@ -56,6 +56,15 @@ body {
   font: inherit; font-size: 11px; color: #1a1a1a;
 }
 .box-body { position: relative; flex: 1; overflow: auto; padding: 10px 12px; }
+/* A drawing needs to fill the box edge-to-edge - Excalidraw manages its own
+   internal scroll/pan, so the body's own padding and scrollbar would just
+   clip it and double up on scrolling. */
+.box-body.box-body-drawing { padding: 0; overflow: hidden; }
+.drawing-canvas { position: absolute; inset: 0; }
+.drawing-loading {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; color: #8a8580; font-size: 12px;
+}
 .box-markdown, .turn-body { overflow-wrap: anywhere; }
 .box-markdown p:first-child, .turn-body p:first-child { margin-top: 0; }
 .box-markdown p:last-child, .turn-body p:last-child { margin-bottom: 0; }
@@ -221,11 +230,11 @@ body {
   position: absolute; left: 16px; top: 16px; z-index: 30;
   display: flex; gap: 8px;
 }
-.new-box-btn, .add-image-btn {
+.new-box-btn, .add-image-btn, .draw-btn {
   padding: 6px 12px; border: 1px solid #d8d5cf; border-radius: 999px;
   background: #fff; cursor: pointer; font: inherit; font-size: 13px;
 }
-.new-box-btn:hover, .add-image-btn:hover { background: #faf9f7; }
+.new-box-btn:hover, .add-image-btn:hover, .draw-btn:hover { background: #faf9f7; }
 
 .toast {
   position: absolute;

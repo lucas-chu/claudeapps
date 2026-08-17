@@ -30,6 +30,25 @@ describe('persistence', () => {
     expect(load()).toEqual({ ...s, shadow: {}, selection: [] })
   })
 
+  it('round-trips a drawing block (elements/appState survive JSON.parse intact)', () => {
+    const s = {
+      ...initialState,
+      boxes: [{
+        id: 'a', x: 0, y: 0, w: 480, h: 360,
+        blocks: [{
+          type: 'drawing' as const,
+          elements: [{ id: 'el1', type: 'rectangle', x: 1, y: 2, width: 10, height: 20 }],
+          appState: { viewBackgroundColor: '#ffffff', zoom: { value: 1 } },
+          preview: 'data:image/png;base64,AAAA',
+        }],
+        render: 'markdown' as const, status: 'idle' as const,
+      }],
+    }
+    save(s)
+    const out = load()!
+    expect(out.boxes[0].blocks).toEqual(s.boxes[0].blocks)
+  })
+
   it('never persists in-flight shadow buffers or streaming status', () => {
     save({
       ...initialState,

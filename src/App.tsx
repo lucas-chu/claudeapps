@@ -10,6 +10,8 @@ import { blocksToText } from './state/types'
 import { fileToDownscaledDataUrl, sortImageCandidates, isImageFile } from './lib/imagePaste'
 
 const NEW_BOX = { w: 360, h: 260 }
+// Drawing needs more room than a text box to be usable.
+const NEW_DRAWING_BOX = { w: 480, h: 360 }
 const PASTED_IMAGE_MAX_W = 420
 // A runaway drag-and-drop (e.g. an entire folder) shouldn't flood the
 // canvas with boxes, so every image-adding path shares this cap.
@@ -142,6 +144,29 @@ export default function App() {
       },
     })
     setAutoEditId(id)
+  }
+
+  // "Draw": an empty drawing box, sized larger than a text box since drawing
+  // needs room. addBox already selects it; unlike "+ New box" it never
+  // enters the markdown editor (see TextBox's drawingOnly guard), so there is
+  // no autoEdit to set here. titleEdited is set up front so auto-titling
+  // (which only fires after a text generation completes) never touches it.
+  const addDrawingBox = () => {
+    const at = findCenterSlot(state.boxes, state.viewport, size, NEW_DRAWING_BOX)
+    dispatch({
+      type: 'addBox',
+      box: {
+        id: crypto.randomUUID(),
+        x: at.x, y: at.y,
+        w: Math.max(MIN_BOX_W, NEW_DRAWING_BOX.w),
+        h: Math.max(MIN_BOX_H, NEW_DRAWING_BOX.h),
+        blocks: [{ type: 'drawing', elements: [] }],
+        render: 'markdown',
+        status: 'idle',
+        title: 'Drawing',
+        titleEdited: true,
+      },
+    })
   }
 
   // Shared by every image-adding path (paste, drag-and-drop, the "Add
@@ -287,6 +312,9 @@ export default function App() {
           </button>
           <button className="add-image-btn" onClick={openFilePicker}>
             Add image
+          </button>
+          <button className="draw-btn" onClick={addDrawingBox}>
+            Draw
           </button>
         </div>
         <input

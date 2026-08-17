@@ -12,6 +12,12 @@ describe('describeAction', () => {
   it('names the count when several boxes are context', () => {
     expect(describeAction(3)).toBe('used 3 boxes as context')
   })
+  it('labels an image answer', () => {
+    expect(describeAction(1, 'image')).toBe('answered about an image')
+  })
+  it('labels a drawing answer', () => {
+    expect(describeAction(1, 'drawing')).toBe('answered about a drawing')
+  })
 })
 
 function makeBox(id: string, blocks: Block[] = [{ type: 'text', text: '' }]): Box {
@@ -72,6 +78,11 @@ describe('resolveCanvasTarget', () => {
     expect(resolveCanvasTarget([box])).toEqual({ kind: 'new' })
   })
 
+  it('creates a new box when the single selected box is drawing-only', () => {
+    const box = makeBox('box-1', [{ type: 'drawing', elements: [] }])
+    expect(resolveCanvasTarget([box])).toEqual({ kind: 'new' })
+  })
+
   it('creates a new box when 2+ boxes are selected', () => {
     const boxes = [makeBox('box-1'), makeBox('box-2')]
     expect(resolveCanvasTarget(boxes)).toEqual({ kind: 'new' })
@@ -110,5 +121,10 @@ describe('resolveTargetWithBusy', () => {
   it('always makes a new box for an image-only selection', () => {
     const img = box('a', [{ type: 'image', mime: 'image/png', data: 'x' }])
     expect(resolveTargetWithBusy([img], undefined, idle)).toEqual({ kind: 'new' })
+  })
+
+  it('always makes a new box for a drawing-only selection', () => {
+    const drawing = box('a', [{ type: 'drawing', elements: [] }])
+    expect(resolveTargetWithBusy([drawing], undefined, idle)).toEqual({ kind: 'new' })
   })
 })

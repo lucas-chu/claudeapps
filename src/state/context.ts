@@ -94,13 +94,19 @@ function parseImageDataUrl(dataUrl: string): { mediaType: string; data: string }
  * capped at MAX_IMAGES_PER_REQUEST. Blocks with a malformed data URL are
  * dropped silently (never sent broken); `omitted` counts valid images beyond
  * the cap so the caller can tell the model what was left out.
+ *
+ * A drawing block contributes its `preview` (a PNG data URL snapshot of the
+ * Excalidraw scene) the same way an image block contributes its `data` —
+ * this is what lets vision "see" a drawing. A drawing with no preview yet
+ * (never edited, or mid-debounce) is skipped rather than sent broken.
  */
 function collectImages(selected: Box[]): { blocks: ContentBlock[]; omitted: number } {
   const valid: ContentBlock[] = []
   for (const box of selected) {
     for (const block of box.blocks) {
-      if (block.type !== 'image') continue
-      const parsed = parseImageDataUrl(block.data)
+      const dataUrl = block.type === 'image' ? block.data : block.type === 'drawing' ? block.preview : undefined
+      if (!dataUrl) continue
+      const parsed = parseImageDataUrl(dataUrl)
       if (!parsed) continue
       valid.push({
         type: 'image',
