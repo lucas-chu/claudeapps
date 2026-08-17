@@ -1,9 +1,10 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import TextBox, { type Handle } from './TextBox'
 import {
   screenToWorld, worldToScreen, zoomAt, rectsOverlap,
   type Point, type Rect,
 } from './geometry'
+import { isZoomWheel, panDeltaFromWheel, wheelUnitPx } from './wheel'
 import type { Action, State } from '../state/store'
 import { MIN_BOX_W, MIN_BOX_H } from '../state/store'
 
@@ -15,19 +16,33 @@ type Drag =
   | { kind: 'marquee'; from: Point; to: Point }
 
 export default function Canvas({
-  state, dispatch, onRetry, autoEditId, onAutoEditConsumed,
+  state, dispatch, onRetry, autoEditId, onAutoEditConsumed, onDropImages,
 }: {
   state: State
   dispatch: (a: Action) => void
   onRetry: (id: string) => void
   autoEditId?: string | null
   onAutoEditConsumed?: () => void
+  /** Called with the dropped image files and the world point under the cursor. */
+  onDropImages?: (files: File[], at: Point) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState<Drag>({ kind: 'none' })
+  const [isDropping, setIsDropping] = useState(false)
+  const dragDepth = useRef(0)
   const vp = state.viewport
 
-  const toWorld = (e: React.PointerEvent | PointerEvent): Point => {
+  // The wheel listener below lives outside React's render closure (it must
+  // be registered non-passively via a manual effect, see below), so it
+  // can't just close over `vp` from this render - that would go stale after
+  // the first pan/zoom. A ref kept in sync on every render gives it the
+  // current viewport without re-subscribing the listener on every change.
+  const vpRef = useRef(vp)
+  useEffect(() => {
+    vpRef.current = vp
+  }, [vp])
+
+  const toWorld = (e: { clientX: number; clientY: number }): Point => {
     const rect = ref.current!.getBoundingClientRect()
     return screenToWorld({ x: e.clientX - rect.left, y: e.clientY - rect.top }, vp)
   }
@@ -123,26 +138,92 @@ export default function Canvas({
     setDrag({ kind: 'none' })
   }
 
-  const onWheel = (e: React.WheelEvent) => {
-    const rect = ref.current!.getBoundingClientRect()
-    const point = { x: e.clientX - rect.left, y: e.clientY - rect.top }
-    // Scale the zoom factor by the actual scroll magnitude rather than a
-    // fixed step, so a trackpad's ~30-60 events per gesture produce smooth
-    // zoom instead of slamming into MIN_ZOOM/MAX_ZOOM in a dozen events.
-    // deltaMode normalises line (1) and page (2) units to pixels.
-    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1
-    const factor = Math.exp(-e.deltaY * unit * 0.002)
-    dispatch({ type: 'setViewport', viewport: zoomAt(vp, point, factor) })
+  // React's onWheel is registered passively, so preventDefault() there is a
+  // silent no-op: a pinch would zoom the whole browser page, and a
+  // horizontal two-finger swipe would trigger Chrome's back-navigation
+  // gesture. A manual, non-passive listener is the only way to stop both.
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+
+    function onWheelNative(e: WheelEvent) {
+      try {
+        e.preventDefault()
+        const currentVp = vpRef.current
+        if (isZoomWheel(e)) {
+          // TS doesn't narrow `el` across the nested-function boundary even
+          // though it's a const captured after the null check above.
+          const rect = el!.getBoundingClientRect()
+          const point = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+          // Scale the zoom factor by the actual scroll magnitude rather than
+          // a fixed step, so a trackpad's ~30-60 events per gesture produce
+          // smooth zoom instead of slamming into MIN_ZOOM/MAX_ZOOM in a
+          // dozen events.
+          const unit = wheelUnitPx(e.deltaMode)
+          const factor = Math.exp(-e.deltaY * unit * 0.002)
+          dispatch({ type: 'setViewport', viewport: zoomAt(currentVp, point, factor) })
+        } else {
+          // Plain two-finger scroll pans instead, the standard convention
+          // for canvas apps (Figma/Miro/Maps).
+          const { dx, dy } = panDeltaFromWheel(e, currentVp.zoom)
+          dispatch({
+            type: 'setViewport',
+            viewport: { ...currentVp, x: currentVp.x + dx, y: currentVp.y + dy },
+          })
+        }
+      } catch {
+        // A wheel-event quirk must never kill the listener.
+      }
+    }
+
+    el.addEventListener('wheel', onWheelNative, { passive: false })
+    return () => el.removeEventListener('wheel', onWheelNative)
+    // dispatch is stable (useReducer); vp is read fresh via vpRef, so this
+    // effect only needs to run once to attach the listener.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const onDragEnter = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types.includes('Files')) return
+    e.preventDefault()
+    dragDepth.current += 1
+    setIsDropping(true)
+  }
+
+  const onDragOver = (e: React.DragEvent) => {
+    // preventDefault() is required here or the browser just opens the file
+    // instead of allowing a drop.
+    if (!e.dataTransfer?.types.includes('Files')) return
+    e.preventDefault()
+  }
+
+  const onDragLeave = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types.includes('Files')) return
+    dragDepth.current = Math.max(0, dragDepth.current - 1)
+    if (dragDepth.current === 0) setIsDropping(false)
+  }
+
+  const onDrop = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types.includes('Files')) return
+    e.preventDefault()
+    dragDepth.current = 0
+    setIsDropping(false)
+    const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'))
+    if (files.length === 0 || !onDropImages) return
+    onDropImages(files, toWorld(e))
   }
 
   return (
     <div
       ref={ref}
-      className="canvas"
+      className={`canvas${isDropping ? ' is-dropping' : ''}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onWheel={onWheel}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
     >
       {state.boxes.map((b) => (
         <TextBox

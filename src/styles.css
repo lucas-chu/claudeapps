@@ -16,6 +16,10 @@ body {
   touch-action: none;
   user-select: none;
 }
+.canvas.is-dropping {
+  outline: 3px dashed #c2643c;
+  outline-offset: -10px;
+}
 
 .box {
   position: absolute;
@@ -204,12 +208,35 @@ body {
   .thinking span { animation: none; opacity: .5; }
 }
 
-.new-box-btn {
+.canvas-toolbar {
   position: absolute; left: 16px; top: 16px; z-index: 30;
+  display: flex; gap: 8px;
+}
+.new-box-btn, .add-image-btn {
   padding: 6px 12px; border: 1px solid #d8d5cf; border-radius: 999px;
   background: #fff; cursor: pointer; font: inherit; font-size: 13px;
 }
-.new-box-btn:hover { background: #faf9f7; }
+.new-box-btn:hover, .add-image-btn:hover { background: #faf9f7; }
+
+.toast {
+  position: absolute;
+  left: 50%; bottom: 84px; transform: translateX(-50%);
+  z-index: 50;
+  padding: 8px 16px;
+  background: #f6f5f3;
+  border: 1px solid #d8d5cf;
+  border-left: 3px solid #c2643c;
+  border-radius: 999px;
+  color: #8a8580;
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .08);
+  pointer-events: none;
+  animation: toast-in .15s ease-out;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 4px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
 
 .box-blocks { display: flex; flex-direction: column; gap: 6px; }
 

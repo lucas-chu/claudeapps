@@ -5,19 +5,34 @@ import ChatPanel from './chat/ChatPanel'
 import { useGeneration } from './useGeneration'
 import { reducer, initialState, MIN_BOX_W, MIN_BOX_H } from './state/store'
 import { load, save } from './state/persist'
-import { findCenterSlot } from './canvas/geometry'
+import { findCenterSlot, findFreeSlot, screenToWorld, type Point, type Rect } from './canvas/geometry'
 import { blocksToText } from './state/types'
 import { fileToDownscaledDataUrl } from './lib/imagePaste'
 
 const NEW_BOX = { w: 360, h: 260 }
 const PASTED_IMAGE_MAX_W = 420
+// A runaway drag-and-drop (e.g. an entire folder) shouldn't flood the
+// canvas with boxes, so every image-adding path shares this cap.
+const MAX_IMAGES_PER_ADD = 5
 
 export default function App() {
   const [state, dispatch] = useReducer(reducer, initialState, (s) => load() ?? s)
   const shellRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [size, setSize] = useState({ w: 1200, h: 800 })
   const [autoEditId, setAutoEditId] = useState<string | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const gen = useGeneration(state, dispatch, size)
+
+  const showToast = (message: string) => {
+    setToast(message)
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(null), 2000)
+  }
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+  }, [])
 
   useEffect(() => {
     const el = shellRef.current
@@ -87,51 +102,104 @@ export default function App() {
     setAutoEditId(id)
   }
 
-  // Pasting an image anywhere in the app drops a new box on the canvas,
-  // downscaled first so autosave never risks blowing the localStorage quota.
+  // Shared by every image-adding path (paste, drag-and-drop, the "Add
+  // image" button) so behavior - downscaling, sizing, free-slot placement,
+  // titling, selection, feedback - can never diverge between them.
+  // `at` is a world point (e.g. under a drop's cursor); when omitted, images
+  // land centred in the current viewport, same as every other box-creation
+  // path in this app.
+  async function addImageBoxes(files: File[], at?: Point, title = 'Image') {
+    const images = files.filter((f) => f.type.startsWith('image/')).slice(0, MAX_IMAGES_PER_ADD)
+    if (images.length === 0) return
+
+    const center = at ?? screenToWorld({ x: size.w / 2, y: size.h / 2 }, state.viewport)
+    let placed: Rect[] = state.boxes
+    let successCount = 0
+    let failureCount = 0
+
+    for (const file of images) {
+      try {
+        const { data, mime, width, height } = await fileToDownscaledDataUrl(file)
+        const aspect = height > 0 ? width / height : 1
+        const w = Math.max(MIN_BOX_W, Math.min(PASTED_IMAGE_MAX_W, width))
+        const h = Math.max(MIN_BOX_H, w / aspect)
+        const pos = findFreeSlot(placed, center, { w, h })
+        dispatch({
+          type: 'addBox',
+          box: {
+            id: crypto.randomUUID(),
+            x: pos.x, y: pos.y, w, h,
+            blocks: [{ type: 'image', mime, data }],
+            render: 'markdown',
+            status: 'idle',
+            title,
+            titleEdited: true,
+          },
+        })
+        // addBox already selects the box it creates, so the last one added
+        // ends up selected - unmistakable feedback that something happened.
+        placed = [...placed, { x: pos.x, y: pos.y, w, h }]
+        successCount++
+      } catch {
+        failureCount++
+      }
+    }
+
+    if (successCount > 0) showToast('Image added')
+    else if (failureCount > 0) showToast("Couldn't read that image")
+  }
+
+  // Pasting an image anywhere in the app drops a new box on the canvas.
+  // Registered on `document` in the capture phase, ahead of any other
+  // handler that might otherwise swallow the event first, and wrapped in
+  // try/catch so a real-world clipboard quirk can never silently kill the
+  // listener.
   useEffect(() => {
     function onPaste(e: ClipboardEvent) {
-      const items = e.clipboardData?.items
-      if (!items) return
-      let imageFile: File | null = null
-      for (const item of items) {
-        if (item.kind === 'file' && item.type.startsWith('image/')) {
-          const f = item.getAsFile()
-          if (f) {
-            imageFile = f
-            break
+      try {
+        const cd = e.clipboardData
+        if (!cd) return
+        let imageFile: File | null = null
+
+        // Different browsers populate `items` vs `files` more reliably;
+        // check both and take the first image found from either.
+        if (cd.items) {
+          for (const item of cd.items) {
+            if (item.kind === 'file' && item.type.startsWith('image/')) {
+              const f = item.getAsFile()
+              if (f) {
+                imageFile = f
+                break
+              }
+            }
           }
         }
+        if (!imageFile && cd.files) {
+          for (const f of cd.files) {
+            if (f.type.startsWith('image/')) {
+              imageFile = f
+              break
+            }
+          }
+        }
+        if (!imageFile) return
+        e.preventDefault()
+        void addImageBoxes([imageFile], undefined, 'Pasted image')
+      } catch {
+        // A clipboard quirk must never kill the listener.
       }
-      if (!imageFile) return
-      e.preventDefault()
-
-      fileToDownscaledDataUrl(imageFile)
-        .then(({ data, mime, width, height }) => {
-          const aspect = height > 0 ? width / height : 1
-          const w = Math.max(MIN_BOX_W, Math.min(PASTED_IMAGE_MAX_W, width))
-          const h = Math.max(MIN_BOX_H, w / aspect)
-          const at = findCenterSlot(state.boxes, state.viewport, size, { w, h })
-          dispatch({
-            type: 'addBox',
-            box: {
-              id: crypto.randomUUID(),
-              x: at.x, y: at.y, w, h,
-              blocks: [{ type: 'image', mime, data }],
-              render: 'markdown',
-              status: 'idle',
-              title: 'Pasted image',
-              titleEdited: true,
-            },
-          })
-        })
-        .catch(() => {
-          // Not a decodable image: ignore quietly, no crash, no error box.
-        })
     }
-    window.addEventListener('paste', onPaste)
-    return () => window.removeEventListener('paste', onPaste)
-  }, [state.boxes, state.viewport, size])
+    document.addEventListener('paste', onPaste, true)
+    return () => document.removeEventListener('paste', onPaste, true)
+  }, [addImageBoxes])
+
+  const openFilePicker = () => fileInputRef.current?.click()
+
+  const onFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = '' // reset so selecting the same file twice still fires change
+    if (files.length > 0) void addImageBoxes(files)
+  }
 
   return (
     <div className="app">
@@ -142,10 +210,25 @@ export default function App() {
           onRetry={gen.retryBox}
           autoEditId={autoEditId}
           onAutoEditConsumed={() => setAutoEditId(null)}
+          onDropImages={(files, at) => void addImageBoxes(files, at)}
         />
-        <button className="new-box-btn" onClick={addEmptyBox}>
-          + New box
-        </button>
+        <div className="canvas-toolbar">
+          <button className="new-box-btn" onClick={addEmptyBox}>
+            + New box
+          </button>
+          <button className="add-image-btn" onClick={openFilePicker}>
+            Add image
+          </button>
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={onFileInputChange}
+        />
+        {toast && <div className="toast">{toast}</div>}
         <Omnibar state={state} gen={gen} />
       </div>
       <ChatPanel state={state} dispatch={dispatch} gen={gen} onPromote={promote} />
