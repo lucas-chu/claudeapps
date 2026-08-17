@@ -129,13 +129,25 @@ export async function handleGenerate(
   res: ServerResponse,
   config: Config,
 ): Promise<void> {
-  let messages: { role: 'user' | 'assistant'; content: string }[]
+  // Content can be a plain string or an array of content blocks (vision
+  // requests send images before a trailing text block). Individual blocks are
+  // deliberately not deep-validated here — the Anthropic API is the authority
+  // on block shape, so a malformed block surfaces as a normal API error
+  // rather than being rejected at this layer.
+  let messages: Anthropic.Messages.MessageParam[]
   try {
     const parsed = JSON.parse(await readBody(req))
-    messages = parsed.messages
-    if (!Array.isArray(messages) || messages.length === 0) {
+    const rawMessages = parsed.messages
+    if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
       throw new Error('messages must be a non-empty array')
     }
+    for (const m of rawMessages) {
+      const content = (m as { content?: unknown } | null)?.content
+      if (typeof content !== 'string' && !Array.isArray(content)) {
+        throw new Error('each message content must be a string or an array of content blocks')
+      }
+    }
+    messages = rawMessages
   } catch (err) {
     res.writeHead(400, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ error: (err as Error).message }))

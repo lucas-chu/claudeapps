@@ -56,3 +56,8 @@ export function blocksToText(blocks: Block[]): string {
     .map((b) => (b.type === 'text' ? b.text : b.type === 'html' ? b.html : ''))
     .join('')
 }
+
+/** True when a box holds only image blocks — an in-place text rewrite would destroy it. */
+export function isImageOnlyBox(blocks: Block[]): boolean {
+  return blocks.length > 0 && blocks.every((b) => b.type === 'image')
+}

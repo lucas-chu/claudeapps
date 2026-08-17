@@ -4,13 +4,18 @@ import { createRevealPacer } from './lib/revealPacer'
 import { buildMessages } from './state/context'
 import { findCenterSlot } from './canvas/geometry'
 import type { Action, State } from './state/store'
-import { blocksToText, type Box } from './state/types'
+import { blocksToText, isImageOnlyBox, type Box } from './state/types'
 
 const NEW_BOX = { w: 360, h: 260 }
 
-export function describeAction(selectionCount: number): string {
+/**
+ * `singleBoxIsImageOnly` only changes the result when exactly one box is
+ * selected — it is ignored (and defaults to false) for every other count, so
+ * existing callers passing just a count keep their exact prior output.
+ */
+export function describeAction(selectionCount: number, singleBoxIsImageOnly = false): string {
   if (selectionCount === 0) return 'created a box'
-  if (selectionCount === 1) return 'edited a box'
+  if (selectionCount === 1) return singleBoxIsImageOnly ? 'answered about an image' : 'edited a box'
   return `used ${selectionCount} boxes as context`
 }
 
@@ -57,6 +62,12 @@ export function useGeneration(
 
     const messages = buildMessages(state.turns, selected, prompt)
 
+    // A single selected box that holds only images would be destroyed by the
+    // in-place rewrite below (it replaces a box's blocks with plain text), so
+    // it is treated like a 2+ selection instead: the answer lands in a new
+    // box and the photo is left untouched.
+    const singleSelectedIsImageOnly = selected.length === 1 && isImageOnlyBox(selected[0].blocks)
+
     // Every canvas prompt enters the same thread the chat panel shows, so the
     // history the model sees is exactly what the user can read.
     dispatch({
@@ -65,17 +76,17 @@ export function useGeneration(
         id: crypto.randomUUID(),
         role: 'user',
         blocks: [{ type: 'text', text: prompt }],
-        label: `→ ${retryTargetId ? 'retried a box' : describeAction(selected.length)}`,
+        label: `→ ${retryTargetId ? 'retried a box' : describeAction(selected.length, singleSelectedIsImageOnly)}`,
       },
     })
 
     // A box that already exists is rewritten through the shadow buffer, so a
     // failure can never destroy text that is already on the canvas.
-    const inPlace = Boolean(retryTargetId) || selected.length === 1
+    const inPlace = Boolean(retryTargetId) || (selected.length === 1 && !singleSelectedIsImageOnly)
     let targetId: string
     if (retryTargetId) {
       targetId = retryTargetId
-    } else if (selected.length === 1) {
+    } else if (selected.length === 1 && !singleSelectedIsImageOnly) {
       targetId = selected[0].id
     } else {
       const box = placeNewBox(prompt)

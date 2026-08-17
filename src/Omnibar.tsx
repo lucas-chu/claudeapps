@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { State } from './state/store'
-import { blocksToText, type Box } from './state/types'
+import { blocksToText, isImageOnlyBox, type Box } from './state/types'
 import type { useGeneration } from './useGeneration'
 
 export default function Omnibar({
@@ -24,7 +24,9 @@ export default function Omnibar({
     selected.length === 0
       ? 'Ask anything — the answer lands in a new box'
       : selected.length === 1
-        ? `Rewrite "${blocksToText(selected[0].blocks).slice(0, 24) || 'this box'}…"`
+        ? isImageOnlyBox(selected[0].blocks)
+          ? 'Ask about this image'
+          : `Rewrite "${blocksToText(selected[0].blocks).slice(0, 24) || 'this box'}…"`
         : `Use ${selected.length} boxes as context`
 
   return (
