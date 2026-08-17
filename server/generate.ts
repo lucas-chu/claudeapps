@@ -90,6 +90,8 @@ export async function handleTitle(
       max_tokens: TITLE_MAX_TOKENS,
       system: TITLE_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: text.slice(0, TITLE_INPUT_LIMIT) }],
+      // Low effort is right for a 32-token label: it is not a reasoning task,
+      // and the title is generated after the box is already readable.
       output_config: { effort: 'low' },
     })
 
@@ -144,11 +146,11 @@ export async function handleGenerate(
     model: MODEL,
     max_tokens: MAX_TOKENS,
     messages,
-    // Low effort cuts time-to-first-token substantially on claude-opus-5's
-    // adaptive thinking. Do not add a `thinking` param here: disabling
-    // thinking on opus-5 causes tool calls to leak as plain text and
-    // <thinking> tags to leak into output. `effort` is the safe lever.
-    output_config: { effort: 'low' },
+    // No `effort` override here: an A/B against the live API showed low effort
+    // gave no measurable time-to-first-token win (9.1s vs 9.4-10.8s), so it was
+    // only trading answer quality for nothing. Do not add a `thinking` param
+    // either — disabling thinking on opus-5 makes tool calls leak as plain text
+    // (web search would silently never run) and <thinking> tags leak into output.
     // Search is available, not forced: the model calls it only when the
     // question needs current information.
     tools: [webSearchTool],

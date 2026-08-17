@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { generate, requestTitle } from './api/stream'
 import { createRevealPacer } from './lib/revealPacer'
 import { buildMessages } from './state/context'
-import { findFreeSlot, screenToWorld } from './canvas/geometry'
+import { findCenterSlot } from './canvas/geometry'
 import type { Action, State } from './state/store'
 import { blocksToText, type Box } from './state/types'
 
@@ -32,11 +32,7 @@ export function useGeneration(
   }, [state])
 
   function placeNewBox(prompt: string): Box {
-    const center = screenToWorld(
-      { x: viewportSize.w / 2, y: viewportSize.h / 2 },
-      state.viewport,
-    )
-    const at = findFreeSlot(state.boxes, center, NEW_BOX)
+    const at = findCenterSlot(state.boxes, state.viewport, viewportSize, NEW_BOX)
     return {
       id: crypto.randomUUID(),
       x: at.x, y: at.y, w: NEW_BOX.w, h: NEW_BOX.h,

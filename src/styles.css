@@ -49,7 +49,7 @@ body {
   border: 0; outline: none; background: none;
   font: inherit; font-size: 11px; color: #1a1a1a;
 }
-.box-body { flex: 1; overflow: auto; padding: 10px 12px; }
+.box-body { position: relative; flex: 1; overflow: auto; padding: 10px 12px; }
 .box-markdown, .turn-body { overflow-wrap: anywhere; }
 .box-markdown p:first-child, .turn-body p:first-child { margin-top: 0; }
 .box-markdown p:last-child, .turn-body p:last-child { margin-bottom: 0; }
@@ -185,3 +185,48 @@ body {
   padding: 4px 12px; border-top: 1px solid #eceae6;
   font-size: 11px; color: #8a8580; cursor: pointer; background: none; border-left: 0; border-right: 0; border-bottom: 0; text-align: left;
 }
+
+/* Shown while a generation is running but no token has arrived yet — adaptive
+   thinking on claude-opus-5 can take several seconds before the first token. */
+.thinking { display: flex; gap: 5px; align-items: center; padding: 2px 0; }
+.thinking span {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #c2643c; opacity: .35;
+  animation: thinking-pulse 1.2s ease-in-out infinite;
+}
+.thinking span:nth-child(2) { animation-delay: .18s; }
+.thinking span:nth-child(3) { animation-delay: .36s; }
+@keyframes thinking-pulse {
+  0%, 60%, 100% { opacity: .25; transform: translateY(0); }
+  30%           { opacity: .9;  transform: translateY(-3px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .thinking span { animation: none; opacity: .5; }
+}
+
+.new-box-btn {
+  position: absolute; left: 16px; top: 16px; z-index: 30;
+  padding: 6px 12px; border: 1px solid #d8d5cf; border-radius: 999px;
+  background: #fff; cursor: pointer; font: inherit; font-size: 13px;
+}
+.new-box-btn:hover { background: #faf9f7; }
+
+.box-blocks { display: flex; flex-direction: column; gap: 6px; }
+
+.md-toolbar {
+  position: absolute;
+  display: flex; gap: 2px;
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .2);
+  z-index: 40;
+}
+.md-toolbar-btn {
+  min-width: 26px; height: 26px;
+  border: 0; border-radius: 5px;
+  background: transparent; color: #f4f2ef;
+  font: inherit; font-size: 12px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.md-toolbar-btn:hover { background: rgba(255, 255, 255, .16); }

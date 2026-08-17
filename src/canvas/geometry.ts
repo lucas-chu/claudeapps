@@ -54,6 +54,22 @@ export function findFreeSlot(
   return start
 }
 
+/**
+ * Finds a free slot for a new box centred in the current viewport. Shared by
+ * every box-creation path (omnibar generation, chat "send to canvas", the
+ * "+ New box" button, pasted images) so the centring math lives in one place.
+ */
+export function findCenterSlot(
+  boxes: Rect[],
+  viewport: Viewport,
+  viewportSize: Size,
+  size: Size,
+  gap = 24,
+): Point {
+  const center = screenToWorld({ x: viewportSize.w / 2, y: viewportSize.h / 2 }, viewport)
+  return findFreeSlot(boxes, center, size, gap)
+}
+
 /** Zooms by `factor` while keeping the world point under `screenPoint` fixed. */
 export function zoomAt(vp: Viewport, screenPoint: Point, factor: number): Viewport {
   const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, vp.zoom * factor))

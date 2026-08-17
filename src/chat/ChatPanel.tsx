@@ -1,9 +1,33 @@
 import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
+import remarkGfm from 'remark-gfm'
 import type { Action, State } from '../state/store'
 import { blocksToText } from '../state/types'
 import type { useGeneration } from '../useGeneration'
+
+/** Renders links so they open in a new tab and don't trigger turn selection. */
+function MarkdownLink({
+  href, children, ...rest
+}: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
+  return (
+    <a
+      {...rest}
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      onPointerDown={(e) => {
+        if (e.altKey || e.button === 1) return
+        e.stopPropagation()
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {children}
+    </a>
+  )
+}
+
+const markdownComponents = { a: MarkdownLink }
 
 export default function ChatPanel({
   state, dispatch, gen, onPromote,
@@ -61,7 +85,15 @@ export default function ChatPanel({
           <div key={t.id} id={`turn-${t.id}`} className={`turn turn-${t.role}`}>
             {t.label && <div className="turn-label">{t.label}</div>}
             <div className="turn-body">
-              <ReactMarkdown remarkPlugins={[remarkBreaks]}>{blocksToText(t.blocks)}</ReactMarkdown>
+              {t.status === 'streaming' && blocksToText(t.blocks).length === 0 ? (
+                <div className="thinking" aria-label="Thinking">
+                  <span /><span /><span />
+                </div>
+              ) : (
+                <ReactMarkdown remarkPlugins={[remarkBreaks, remarkGfm]} components={markdownComponents}>
+                  {blocksToText(t.blocks)}
+                </ReactMarkdown>
+              )}
             </div>
             {t.status === 'error' && (
               <div className="turn-error">
