@@ -7,7 +7,7 @@ import { reducer, initialState, MIN_BOX_W, MIN_BOX_H } from './state/store'
 import { load, save } from './state/persist'
 import { findCenterSlot, findFreeSlot, screenToWorld, type Point, type Rect } from './canvas/geometry'
 import { blocksToText } from './state/types'
-import { fileToDownscaledDataUrl } from './lib/imagePaste'
+import { fileToDownscaledDataUrl, sortImageCandidates } from './lib/imagePaste'
 
 const NEW_BOX = { w: 360, h: 260 }
 const PASTED_IMAGE_MAX_W = 420
@@ -108,9 +108,24 @@ export default function App() {
   // `at` is a world point (e.g. under a drop's cursor); when omitted, images
   // land centred in the current viewport, same as every other box-creation
   // path in this app.
-  async function addImageBoxes(files: File[], at?: Point, title = 'Image') {
-    const images = files.filter((f) => f.type.startsWith('image/')).slice(0, MAX_IMAGES_PER_ADD)
+  /**
+   * `mode` distinguishes the two ways callers supply files:
+   *  - 'separate'     : drop / file-picker. Each file is a different image, so
+   *                     every one gets its own box.
+   *  - 'alternatives' : paste. The clipboard hands over ONE image in several
+   *                     formats, so these are fallbacks for each other — try
+   *                     them in order and stop at the first that decodes.
+   */
+  async function addImageBoxes(
+    files: File[],
+    at?: Point,
+    title = 'Image',
+    mode: 'separate' | 'alternatives' = 'separate',
+  ) {
+    const candidates = sortImageCandidates(files.filter((f) => f.type.startsWith('image/')))
+    const images = mode === 'alternatives' ? candidates : candidates.slice(0, MAX_IMAGES_PER_ADD)
     if (images.length === 0) return
+    const attempted: string[] = []
 
     const center = at ?? screenToWorld({ x: size.w / 2, y: size.h / 2 }, state.viewport)
     let placed: Rect[] = state.boxes
@@ -118,6 +133,7 @@ export default function App() {
     let failureCount = 0
 
     for (const file of images) {
+      attempted.push(file.type || 'unknown')
       try {
         const { data, mime, width, height } = await fileToDownscaledDataUrl(file)
         const aspect = height > 0 ? width / height : 1
@@ -140,13 +156,19 @@ export default function App() {
         // ends up selected - unmistakable feedback that something happened.
         placed = [...placed, { x: pos.x, y: pos.y, w, h }]
         successCount++
-      } catch {
+        // Clipboard flavours are alternatives for one image, so one success
+        // is the whole job — keep going and we'd add duplicate boxes.
+        if (mode === 'alternatives') break
+      } catch (err) {
         failureCount++
+        // Log the real reason: the toast has to stay short, but without this
+        // a decode failure is undiagnosable from the outside.
+        console.warn('[image] could not decode', file.type, err)
       }
     }
 
     if (successCount > 0) showToast('Image added')
-    else if (failureCount > 0) showToast("Couldn't read that image")
+    else if (failureCount > 0) showToast(`Couldn't read image (${attempted.join(', ')})`)
   }
 
   // Pasting an image anywhere in the app drops a new box on the canvas.
@@ -159,32 +181,37 @@ export default function App() {
       try {
         const cd = e.clipboardData
         if (!cd) return
-        let imageFile: File | null = null
 
-        // Different browsers populate `items` vs `files` more reliably;
-        // check both and take the first image found from either.
+        // Gather EVERY image flavour the clipboard offers, not just the first.
+        // The macOS clipboard routinely lists the same image as several types
+        // and often puts an undecodable one (image/tiff) first, so stopping at
+        // the first match made paste fail with a usable PNG right behind it.
+        const candidates: File[] = []
+        const seen = new Set<string>()
+        const add = (f: File | null) => {
+          if (!f || !f.type.startsWith('image/')) return
+          const key = `${f.type}:${f.size}`
+          if (seen.has(key)) return
+          seen.add(key)
+          candidates.push(f)
+        }
+
+        // Browsers differ on which of these they populate; read both.
         if (cd.items) {
           for (const item of cd.items) {
-            if (item.kind === 'file' && item.type.startsWith('image/')) {
-              const f = item.getAsFile()
-              if (f) {
-                imageFile = f
-                break
-              }
-            }
+            if (item.kind === 'file') add(item.getAsFile())
           }
         }
-        if (!imageFile && cd.files) {
-          for (const f of cd.files) {
-            if (f.type.startsWith('image/')) {
-              imageFile = f
-              break
-            }
-          }
+        if (cd.files) for (const f of cd.files) add(f)
+
+        if (candidates.length === 0) {
+          // Nothing usable. Log what the clipboard *did* carry so an
+          // unsupported source can be identified rather than guessed at.
+          console.warn('[image] paste carried no image file; types:', cd.types)
+          return
         }
-        if (!imageFile) return
         e.preventDefault()
-        void addImageBoxes([imageFile], undefined, 'Pasted image')
+        void addImageBoxes(candidates, undefined, 'Pasted image', 'alternatives')
       } catch {
         // A clipboard quirk must never kill the listener.
       }

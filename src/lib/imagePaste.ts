@@ -1,6 +1,27 @@
 export type DownscaledImage = { data: string; mime: string; width: number; height: number }
 
 /**
+ * MIME types every major browser can decode in an <img>, best first.
+ *
+ * This ordering is load-bearing, not cosmetic. The macOS clipboard commonly
+ * offers the same image in several flavours at once, and `image/tiff` is often
+ * listed first — but no browser decodes TIFF in an <img>, so taking the first
+ * image item on the clipboard fails even when a perfectly good PNG is sitting
+ * right behind it. Formats not listed here (tiff, heic, ...) sort last and are
+ * only attempted as a last resort.
+ */
+const DECODE_PREFERENCE = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+
+/** Sorts image candidates so the most reliably decodable formats come first. */
+export function sortImageCandidates(files: File[]): File[] {
+  const rank = (f: File) => {
+    const i = DECODE_PREFERENCE.indexOf(f.type.toLowerCase())
+    return i === -1 ? DECODE_PREFERENCE.length : i
+  }
+  return [...files].sort((a, b) => rank(a) - rank(b))
+}
+
+/**
  * Decodes an image file, downscales it so its longest edge is at most
  * `maxEdge` (never upscaling), and re-encodes it as a data URL.
  *
@@ -64,7 +85,9 @@ export function fileToDownscaledDataUrl(file: File, maxEdge = 1280): Promise<Dow
 
     img.onerror = () => {
       cleanup()
-      reject(new Error('image decode failed'))
+      // Name the type: this is the message that surfaces to the user, and
+      // "couldn't read that image" with no format is undiagnosable.
+      reject(new Error(`browser cannot decode ${file.type || 'unknown type'}`))
     }
 
     img.src = url
