@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import Canvas from './canvas/Canvas'
 import Omnibar from './Omnibar'
 import ChatPanel from './chat/ChatPanel'
@@ -21,8 +21,16 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [size, setSize] = useState({ w: 1200, h: 800 })
   const [autoEditId, setAutoEditId] = useState<string | null>(null)
+  // Stable identity: passed down to the React.memo'd TextBox (via Canvas),
+  // so a fresh closure every render would defeat that memoization for every
+  // box, not just the one being auto-edited.
+  const clearAutoEdit = useCallback(() => setAutoEditId(null), [])
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Latches once autosave starts failing (e.g. localStorage quota exceeded
+  // by a canvas full of images), so the toast fires once per failure streak
+  // instead of every 500ms, and clears again the moment a save succeeds.
+  const autosaveFailing = useRef(false)
   const gen = useGeneration(state, dispatch, size)
 
   const showToast = (message: string) => {
@@ -60,9 +68,40 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // Debounced autosave.
+  // Canvas has its own dragover/drop handlers (drop-position-follows-cursor,
+  // the .is-dropping affordance), but everything else on the page - the
+  // toolbar, the "Add image" button, the omnibar, the chat panel - has none.
+  // Without a default-preventing catch-all, a drop anywhere out there falls
+  // through to the browser's native behavior and navigates the whole tab
+  // away to the dropped file. These listen on `document` in the bubble
+  // phase, so a drop on .canvas itself is already handled by React's
+  // synthetic handlers (attached lower, on the app root) before it gets
+  // here - this is strictly a safety net for drops everywhere else.
   useEffect(() => {
-    const t = setTimeout(() => save(state), 500)
+    const onDocumentDragOver = (e: DragEvent) => e.preventDefault()
+    const onDocumentDrop = (e: DragEvent) => e.preventDefault()
+    document.addEventListener('dragover', onDocumentDragOver)
+    document.addEventListener('drop', onDocumentDrop)
+    return () => {
+      document.removeEventListener('dragover', onDocumentDragOver)
+      document.removeEventListener('drop', onDocumentDrop)
+    }
+  }, [])
+
+  // Debounced autosave. A canvas with a couple dozen images can exceed
+  // localStorage's ~5MB quota; when that happens, save() reports it rather
+  // than silently swallowing it, so the user gets a toast instead of a
+  // reload that quietly discards every unsaved change since the last
+  // successful save.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (save(state)) {
+        autosaveFailing.current = false
+      } else if (!autosaveFailing.current) {
+        autosaveFailing.current = true
+        showToast('Canvas too large to autosave')
+      }
+    }, 500)
     return () => clearTimeout(t)
   }, [state])
 
@@ -236,7 +275,7 @@ export default function App() {
           dispatch={dispatch}
           onRetry={gen.retryBox}
           autoEditId={autoEditId}
-          onAutoEditConsumed={() => setAutoEditId(null)}
+          onAutoEditConsumed={clearAutoEdit}
           onDropImages={(files, at) => void addImageBoxes(files, at)}
         />
         <div className="canvas-toolbar">

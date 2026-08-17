@@ -5,8 +5,13 @@ export const STORAGE_KEY = 'cove-canvas:v1'
 /**
  * Persists canvas content and thread. Transient fields are dropped: a reload
  * must never restore a half-written box or a selection the user can't see.
+ *
+ * Returns whether the save actually landed. Quota-exceeded (a canvas full of
+ * images can run well past localStorage's ~5MB budget) and private-mode
+ * failures are caught rather than thrown - this module has no DOM/toast
+ * access, so it reports the outcome and leaves surfacing it to the caller.
  */
-export function save(state: State): void {
+export function save(state: State): boolean {
   const clean: State = {
     ...state,
     selection: [],
@@ -19,8 +24,9 @@ export function save(state: State): void {
   }
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(clean))
+    return true
   } catch {
-    // Quota or private mode: losing autosave must not break the app.
+    return false
   }
 }
 

@@ -43,9 +43,11 @@ body {
 }
 .box-delete { border: 0; background: none; cursor: pointer; font-size: 15px; color: #8a8580; }
 .box-title {
+  /* Part of the drag handle now (double-click still renames), so it shares
+     box-header's grab cursor rather than hinting at click-to-edit text. */
   flex: 1; min-width: 0; margin: 0 6px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 11px; color: #5c5852; cursor: text;
+  font-size: 11px; color: #5c5852; cursor: grab;
 }
 .box-title.is-placeholder { color: #8a8580; font-style: italic; }
 .box-title-input {

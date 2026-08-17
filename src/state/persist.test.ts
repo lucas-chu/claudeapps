@@ -49,4 +49,19 @@ describe('persistence', () => {
     mem[STORAGE_KEY] = '{not json'
     expect(load()).toBeNull()
   })
+
+  it('save() returns true on success', () => {
+    expect(save(initialState)).toBe(true)
+  })
+
+  it('save() returns false instead of throwing when storage is full', () => {
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new DOMException('quota exceeded', 'QuotaExceededError')
+    })
+    try {
+      expect(save(initialState)).toBe(false)
+    } finally {
+      spy.mockRestore()
+    }
+  })
 })

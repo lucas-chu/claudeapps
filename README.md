@@ -53,8 +53,8 @@ converted automatically. Select an image box and prompt to ask about it.
 toolbar (bold, italic, code, heading, lists, quote, link), or use ⌘B / ⌘I / ⌘K.
 Pasting a URL over selected text turns it into a link.
 
-**Titles** are generated automatically after each answer. Click one to rename it —
-after that, auto-titling leaves it alone.
+**Titles** are generated automatically after each answer. Double-click one to
+rename it — after that, auto-titling leaves it alone.
 
 ### Getting around
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { generate, requestTitle } from './api/stream'
 import { createRevealPacer } from './lib/revealPacer'
 import { buildMessages } from './state/context'
@@ -214,5 +214,19 @@ export function useGeneration(
     await runCanvasPrompt(box.lastPrompt, hadContent ? [box] : [], boxId)
   }
 
-  return { runCanvasPrompt, runChatPrompt, retryBox, busy }
+  // `retryBox` is handed to Canvas -> TextBox as `onRetry`, and TextBox is
+  // React.memo'd (see TextBox.tsx) to stop react-markdown from re-parsing
+  // every box on every streaming tick. `retryBox` itself is a fresh closure
+  // every render (it needs the current `state`/`busy`, exactly like before),
+  // so exposing it directly would hand memoization a new function identity
+  // constantly and defeat it for every box, not just the one being retried.
+  // `retryBoxRef` always holds the latest closure; the function identity
+  // returned to callers never changes.
+  const retryBoxRef = useRef(retryBox)
+  useEffect(() => {
+    retryBoxRef.current = retryBox
+  })
+  const stableRetryBox = useCallback((boxId: string) => retryBoxRef.current(boxId), [])
+
+  return { runCanvasPrompt, runChatPrompt, retryBox: stableRetryBox, busy }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
@@ -104,7 +104,17 @@ function measureCaretOffset(el: HTMLTextAreaElement, index: number): { top: numb
   }
 }
 
-export default function TextBox({
+/**
+ * A streaming dispatch fires every ~16ms (see the reveal pacer), which
+ * re-renders Canvas and, without this, every box on it - each one re-running
+ * react-markdown's full remark+GFM parse regardless of whether its own
+ * content changed. Memoizing means an unrelated box's re-render is skipped
+ * whenever its props are unchanged, which requires Canvas to hand it
+ * reference-stable callbacks (see the useCallback wrapping in Canvas.tsx);
+ * the reducer already preserves box-object identity for untouched boxes
+ * (see `mapBox` in state/store.ts).
+ */
+function TextBox({
   box, viewport, selected, shadowText, dispatch,
   onDragStart, onResizeStart, onSelect, onRetry,
   autoEdit, onAutoEditConsumed,
@@ -268,11 +278,9 @@ export default function TextBox({
         ) : (
           <span
             className={`box-title ${box.title ? '' : 'is-placeholder'}`}
-            onPointerDown={(e) => {
-              if (e.altKey || e.button === 1) return
-              e.stopPropagation()
-            }}
-            onClick={(e) => {
+            onDoubleClick={(e) => {
+              // Keep the header's onPointerDown (the drag handle) from also
+              // starting a drag out from under this rename.
               e.stopPropagation()
               startTitleEdit()
             }}
@@ -457,3 +465,5 @@ export default function TextBox({
     </div>
   )
 }
+
+export default memo(TextBox)

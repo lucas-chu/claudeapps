@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import TextBox, { type Handle } from './TextBox'
 import {
   screenToWorld, worldToScreen, zoomAt, rectsOverlap,
   type Point, type Rect,
 } from './geometry'
-import { isZoomWheel, panDeltaFromWheel, wheelUnitPx } from './wheel'
+import { isZoomWheel, panDeltaFromWheel, wheelUnitPx, findScrollableAncestor } from './wheel'
 import { isImageFile } from '../lib/imagePaste'
 import type { Action, State } from '../state/store'
 import { MIN_BOX_W, MIN_BOX_H } from '../state/store'
@@ -43,10 +43,56 @@ export default function Canvas({
     vpRef.current = vp
   }, [vp])
 
+  // Same idea, for the box-select/drag/resize callbacks below: they're
+  // handed to TextBox (which is React.memo'd, see TextBox.tsx) and must
+  // keep a stable identity across renders so memoization actually holds,
+  // yet still need to read the *current* selection/boxes when a user
+  // actually starts a drag - not whatever they were when the callback was
+  // created. A ref mirror gives them that without depending on `state`.
+  const stateRef = useRef(state)
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
+
   const toWorld = (e: { clientX: number; clientY: number }): Point => {
     const rect = ref.current!.getBoundingClientRect()
     return screenToWorld({ x: e.clientX - rect.left, y: e.clientY - rect.top }, vp)
   }
+
+  // A ref-based twin of `toWorld` with a stable identity, for the same
+  // reason as `stateRef` above.
+  const toWorldStable = useCallback((e: { clientX: number; clientY: number }): Point => {
+    const rect = ref.current!.getBoundingClientRect()
+    return screenToWorld({ x: e.clientX - rect.left, y: e.clientY - rect.top }, vpRef.current)
+  }, [])
+
+  const handleSelect = useCallback((e: React.PointerEvent, id: string) => {
+    e.stopPropagation()
+    if (e.shiftKey) dispatch({ type: 'toggleSelect', id })
+    else if (!stateRef.current.selection.includes(id)) dispatch({ type: 'select', ids: [id] })
+  }, [dispatch])
+
+  const handleDragStart = useCallback((e: React.PointerEvent, id: string) => {
+    e.stopPropagation()
+    // Dragging by the header must also select, or the omnibar would still
+    // be acting on whatever was selected before.
+    if (!stateRef.current.selection.includes(id)) dispatch({ type: 'select', ids: [id] })
+    const box = stateRef.current.boxes.find((x) => x.id === id)!
+    setDrag({
+      kind: 'move', id,
+      grab: toWorldStable(e),
+      origin: { x: box.x, y: box.y },
+    })
+  }, [dispatch, toWorldStable])
+
+  const handleResizeStart = useCallback((e: React.PointerEvent, id: string, handle: Handle) => {
+    const box = stateRef.current.boxes.find((x) => x.id === id)!
+    setDrag({
+      kind: 'resize', id, handle,
+      start: { x: box.x, y: box.y, w: box.w, h: box.h },
+      origin: toWorldStable(e),
+    })
+  }, [toWorldStable])
 
   const onPointerDown = (e: React.PointerEvent) => {
     const isPan = e.button === 1 || e.altKey
@@ -149,11 +195,24 @@ export default function Canvas({
 
     function onWheelNative(e: WheelEvent) {
       try {
+        // If the wheel event lands on (or bubbles from) a scrollable
+        // ancestor inside a box - e.g. `.box-body` or the editing textarea
+        // overflowing with a long streamed answer - and that ancestor still
+        // has room to move in this direction, let the browser scroll it
+        // natively instead of stealing the gesture for canvas pan/zoom. A
+        // pinch/zoom gesture always wins regardless (handled inside the
+        // helper), so a box can never swallow zoom.
+        // TS doesn't narrow `el` across the nested-function boundary even
+        // though it's a const captured after the null check above.
+        const target = e.target instanceof Element ? e.target : null
+        const scrollable = findScrollableAncestor(
+          target, el!, (node) => node.parentElement, e.deltaX, e.deltaY, e,
+        )
+        if (scrollable) return
+
         e.preventDefault()
         const currentVp = vpRef.current
         if (isZoomWheel(e)) {
-          // TS doesn't narrow `el` across the nested-function boundary even
-          // though it's a const captured after the null check above.
           const rect = el!.getBoundingClientRect()
           const point = { x: e.clientX - rect.left, y: e.clientY - rect.top }
           // Scale the zoom factor by the actual scroll magnitude rather than
@@ -237,31 +296,9 @@ export default function Canvas({
           onRetry={onRetry}
           autoEdit={b.id === autoEditId}
           onAutoEditConsumed={onAutoEditConsumed}
-          onSelect={(e, id) => {
-            e.stopPropagation()
-            if (e.shiftKey) dispatch({ type: 'toggleSelect', id })
-            else if (!state.selection.includes(id)) dispatch({ type: 'select', ids: [id] })
-          }}
-          onDragStart={(e, id) => {
-            e.stopPropagation()
-            // Dragging by the header must also select, or the omnibar would
-            // still be acting on whatever was selected before.
-            if (!state.selection.includes(id)) dispatch({ type: 'select', ids: [id] })
-            const box = state.boxes.find((x) => x.id === id)!
-            setDrag({
-              kind: 'move', id,
-              grab: toWorld(e),
-              origin: { x: box.x, y: box.y },
-            })
-          }}
-          onResizeStart={(e, id, handle) => {
-            const box = state.boxes.find((x) => x.id === id)!
-            setDrag({
-              kind: 'resize', id, handle,
-              start: { x: box.x, y: box.y, w: box.w, h: box.h },
-              origin: toWorld(e),
-            })
-          }}
+          onSelect={handleSelect}
+          onDragStart={handleDragStart}
+          onResizeStart={handleResizeStart}
         />
       ))}
       {drag.kind === 'marquee' && (() => {
