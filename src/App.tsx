@@ -7,7 +7,7 @@ import { reducer, initialState, MIN_BOX_W, MIN_BOX_H } from './state/store'
 import { load, save } from './state/persist'
 import { findCenterSlot, findFreeSlot, screenToWorld, type Point, type Rect } from './canvas/geometry'
 import { blocksToText } from './state/types'
-import { fileToDownscaledDataUrl, sortImageCandidates } from './lib/imagePaste'
+import { fileToDownscaledDataUrl, sortImageCandidates, isImageFile } from './lib/imagePaste'
 
 const NEW_BOX = { w: 360, h: 260 }
 const PASTED_IMAGE_MAX_W = 420
@@ -122,7 +122,7 @@ export default function App() {
     title = 'Image',
     mode: 'separate' | 'alternatives' = 'separate',
   ) {
-    const candidates = sortImageCandidates(files.filter((f) => f.type.startsWith('image/')))
+    const candidates = sortImageCandidates(files.filter(isImageFile))
     const images = mode === 'alternatives' ? candidates : candidates.slice(0, MAX_IMAGES_PER_ADD)
     if (images.length === 0) return
     const attempted: string[] = []
@@ -189,7 +189,7 @@ export default function App() {
         const candidates: File[] = []
         const seen = new Set<string>()
         const add = (f: File | null) => {
-          if (!f || !f.type.startsWith('image/')) return
+          if (!f || !isImageFile(f)) return
           const key = `${f.type}:${f.size}`
           if (seen.has(key)) return
           seen.add(key)

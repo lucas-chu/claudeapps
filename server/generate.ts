@@ -1,7 +1,15 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { execFile as execFileCb } from 'node:child_process'
+import { promisify } from 'node:util'
+import { writeFile, readFile, unlink } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import Anthropic from '@anthropic-ai/sdk'
 import type { Config } from './config.js'
 import { extractSources } from './sources.js'
+
+const execFile = promisify(execFileCb)
 
 const MODEL = 'claude-opus-5'
 const MAX_TOKENS = 16000
@@ -196,5 +204,128 @@ export async function handleGenerate(
   } finally {
     req.off('close', onClose)
     if (!clientGone && !res.writableEnded) res.end()
+  }
+}
+
+// Real iPhone HEICs choke heic2any's bundled libheif ("ERR_LIBHEIF format not
+// supported"), so conversion happens here instead, via macOS's own `sips`.
+const MAX_UPLOAD_BYTES = 40 * 1024 * 1024 // 40MB
+const SIPS_TIMEOUT_MS = 20_000
+
+/**
+ * Reads the raw request body into a Buffer, capping it at maxBytes. A client
+ * sending more than that is never buffered in full: as soon as the running
+ * total crosses the cap, a 413 is written immediately and the request socket
+ * is destroyed so nothing keeps accumulating in memory. Returns null in that
+ * case so the caller knows a response has already been sent.
+ */
+function readBodyBuffer(
+  req: IncomingMessage,
+  res: ServerResponse,
+  maxBytes: number,
+): Promise<Buffer | null> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    let total = 0
+    let settled = false
+
+    req.on('data', (chunk: Buffer) => {
+      if (settled) return
+      total += chunk.length
+      if (total > maxBytes) {
+        settled = true
+        res.writeHead(413, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: 'image exceeds 40MB limit' }))
+        req.destroy()
+        resolve(null)
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on('end', () => {
+      if (settled) return
+      settled = true
+      resolve(Buffer.concat(chunks))
+    })
+    req.on('error', (err) => {
+      if (settled) return
+      settled = true
+      reject(err)
+    })
+  })
+}
+
+export async function handleConvertImage(
+  req: IncomingMessage,
+  res: ServerResponse,
+  _config: Config,
+): Promise<void> {
+  // sips is macOS-only. Check before touching the body at all, so a
+  // non-macOS host never buffers a large upload just to reject it anyway.
+  if (process.platform !== 'darwin') {
+    res.writeHead(501, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: 'HEIC conversion requires macOS' }))
+    return
+  }
+
+  let bytes: Buffer | null
+  try {
+    bytes = await readBodyBuffer(req, res, MAX_UPLOAD_BYTES)
+  } catch (err) {
+    console.error('[convert-image]', { message: redact((err as Error).message || 'body read failed') })
+    if (!res.writableEnded) {
+      res.writeHead(400, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: 'could not read request body' }))
+    }
+    return
+  }
+  // A null result means readBodyBuffer already wrote the 413 itself.
+  if (bytes === null) return
+
+  if (bytes.length === 0) {
+    res.writeHead(400, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: 'empty request body' }))
+    return
+  }
+
+  // Server-generated names only. Never derive a filename from anything the
+  // client sends: the request body is written to disk purely as opaque
+  // bytes, under a name only this handler chooses, so nothing the client
+  // controls can influence a filesystem path or, via execFile's argv array,
+  // be interpreted as shell syntax.
+  const id = randomUUID()
+  const inPath = join(tmpdir(), `cove-convert-${id}.heic`)
+  const outPath = join(tmpdir(), `cove-convert-${id}.jpg`)
+
+  try {
+    await writeFile(inPath, bytes)
+
+    // execFile (not exec) with an argv array and no shell: the input is a
+    // server-chosen temp path, never client-controlled text, so there is
+    // nothing here a crafted upload could turn into a shell command.
+    await execFile('sips', ['-s', 'format', 'jpeg', '-Z', '1280', inPath, '--out', outPath], {
+      timeout: SIPS_TIMEOUT_MS,
+    })
+
+    const jpeg = await readFile(outPath)
+    res.writeHead(200, { 'content-type': 'image/jpeg' })
+    res.end(jpeg)
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    // ENOENT here means the `sips` binary itself could not be found (e.g. a
+    // non-standard macOS setup) rather than a bad image.
+    if (code === 'ENOENT') {
+      res.writeHead(501, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: 'HEIC conversion requires macOS' }))
+      return
+    }
+    // Log the real reason server-side, but never leak the temp paths (or
+    // anything else about the host filesystem) to the client.
+    const message = redact((err as Error).message || 'HEIC conversion failed')
+    console.error('[convert-image]', { message })
+    res.writeHead(422, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: 'could not convert image' }))
+  } finally {
+    await Promise.allSettled([unlink(inPath), unlink(outPath)])
   }
 }

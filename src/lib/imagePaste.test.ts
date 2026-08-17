@@ -1,5 +1,33 @@
 import { describe, it, expect } from 'vitest'
-import { sortImageCandidates } from './imagePaste'
+import { sortImageCandidates, isHeic } from './imagePaste'
+
+describe('isHeic', () => {
+  const f = (type: string, name = 'x') => new File([new Uint8Array([0])], name, { type })
+
+  it('recognizes image/heic', () => {
+    expect(isHeic(f('image/heic'))).toBe(true)
+  })
+
+  it('recognizes image/heif', () => {
+    expect(isHeic(f('image/heif'))).toBe(true)
+  })
+
+  it('recognizes an empty mime type with a .heic filename', () => {
+    expect(isHeic(f('', 'photo.heic'))).toBe(true)
+  })
+
+  it('recognizes an empty mime type with a .HEIC filename (case-insensitive)', () => {
+    expect(isHeic(f('', 'photo.HEIC'))).toBe(true)
+  })
+
+  it('rejects an empty mime type with a .png filename', () => {
+    expect(isHeic(f('', 'photo.png'))).toBe(false)
+  })
+
+  it('rejects a normal image/png', () => {
+    expect(isHeic(f('image/png', 'photo.png'))).toBe(false)
+  })
+})
 
 describe('sortImageCandidates', () => {
   const f = (type: string) => new File([new Uint8Array([0])], 'x', { type })

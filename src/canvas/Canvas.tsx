@@ -5,6 +5,7 @@ import {
   type Point, type Rect,
 } from './geometry'
 import { isZoomWheel, panDeltaFromWheel, wheelUnitPx } from './wheel'
+import { isImageFile } from '../lib/imagePaste'
 import type { Action, State } from '../state/store'
 import { MIN_BOX_W, MIN_BOX_H } from '../state/store'
 
@@ -208,7 +209,7 @@ export default function Canvas({
     e.preventDefault()
     dragDepth.current = 0
     setIsDropping(false)
-    const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'))
+    const files = Array.from(e.dataTransfer.files).filter(isImageFile)
     if (files.length === 0 || !onDropImages) return
     onDropImages(files, toWorld(e))
   }
