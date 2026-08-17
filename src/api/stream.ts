@@ -83,3 +83,23 @@ export async function generate(
 
   if (!errored) handlers.onDone()
 }
+
+/**
+ * Requests a short auto-generated title for a piece of text. Never throws —
+ * a failed title is a silent no-op for the caller, so any error (network,
+ * non-2xx, malformed body) resolves to an empty string instead of rejecting.
+ */
+export async function requestTitle(text: string): Promise<string> {
+  try {
+    const response = await fetch('/api/title', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+    if (!response.ok) return ''
+    const data = await response.json()
+    return typeof data.title === 'string' ? data.title : ''
+  } catch {
+    return ''
+  }
+}

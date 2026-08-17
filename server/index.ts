@@ -1,7 +1,7 @@
 import { createServer } from 'node:http'
 import { readFileSync } from 'node:fs'
 import { loadConfig } from './config.js'
-import { handleGenerate } from './generate.js'
+import { handleGenerate, handleTitle } from './generate.js'
 
 // Minimal .env loader — avoids a dependency and keeps startup explicit.
 function readDotEnv(): Record<string, string> {
@@ -40,6 +40,10 @@ const server = createServer(async (req, res) => {
   }
   if (req.method === 'POST' && req.url === '/api/generate') {
     await handleGenerate(req, res, config)
+    return
+  }
+  if (req.method === 'POST' && req.url === '/api/title') {
+    await handleTitle(req, res, config)
     return
   }
   res.writeHead(404, { 'content-type': 'application/json' })

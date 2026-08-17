@@ -38,6 +38,82 @@ const webSearchTool: Anthropic.Messages.ToolUnion = {
   name: 'web_search',
 }
 
+const TITLE_MODEL = 'claude-opus-5'
+const TITLE_MAX_TOKENS = 32
+const TITLE_INPUT_LIMIT = 2000
+const TITLE_OUTPUT_LIMIT = 60
+
+const TITLE_SYSTEM_PROMPT =
+  'Write a short title, at most 5 words, describing the content below. ' +
+  'Respond with plain text only: no quotes, no trailing punctuation, no markdown, ' +
+  'no preamble — just the title itself.'
+
+/** Strips surrounding quotes/markdown and collapses whitespace, regardless of what the model returned. */
+function sanitizeTitle(raw: string): string {
+  let title = raw.trim()
+  // Strip a matching pair of surrounding quote characters (straight or curly).
+  title = title.replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim()
+  // Strip common markdown emphasis/heading markers.
+  title = title.replace(/^#+\s*/, '')
+  title = title.replace(/\*\*?([^*]*)\*\*?/g, '$1')
+  title = title.replace(/`+/g, '')
+  // Collapse all whitespace (including newlines) to single spaces.
+  title = title.replace(/\s+/g, ' ').trim()
+  // Drop a single trailing punctuation mark left over from a sentence-y reply.
+  title = title.replace(/[.!?,;:]+$/, '').trim()
+  return title.slice(0, TITLE_OUTPUT_LIMIT)
+}
+
+export async function handleTitle(
+  req: IncomingMessage,
+  res: ServerResponse,
+  config: Config,
+): Promise<void> {
+  let text: string
+  try {
+    const parsed = JSON.parse(await readBody(req))
+    text = parsed.text
+    if (typeof text !== 'string' || text.trim().length === 0) {
+      throw new Error('text must be a non-empty string')
+    }
+  } catch (err) {
+    res.writeHead(400, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: (err as Error).message }))
+    return
+  }
+
+  const client = new Anthropic({ apiKey: config.apiKey, baseURL: config.baseURL })
+
+  try {
+    const message = await client.messages.create({
+      model: TITLE_MODEL,
+      max_tokens: TITLE_MAX_TOKENS,
+      system: TITLE_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: text.slice(0, TITLE_INPUT_LIMIT) }],
+      output_config: { effort: 'low' },
+    })
+
+    // A failed title must never surface as an error to the user — respond
+    // 200 with an empty title and let the client silently skip it.
+    if (message.stop_reason === 'refusal') {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ title: '' }))
+      return
+    }
+
+    const textBlock = message.content.find((b) => b.type === 'text')
+    const title = textBlock && 'text' in textBlock ? sanitizeTitle(textBlock.text) : ''
+
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ title }))
+  } catch (err) {
+    const message = redact((err as Error).message || 'Title generation failed')
+    console.error('[title]', { message, status: (err as { status?: number }).status })
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ title: '' }))
+  }
+}
+
 export async function handleGenerate(
   req: IncomingMessage,
   res: ServerResponse,
@@ -68,6 +144,11 @@ export async function handleGenerate(
     model: MODEL,
     max_tokens: MAX_TOKENS,
     messages,
+    // Low effort cuts time-to-first-token substantially on claude-opus-5's
+    // adaptive thinking. Do not add a `thinking` param here: disabling
+    // thinking on opus-5 causes tool calls to leak as plain text and
+    // <thinking> tags to leak into output. `effort` is the safe lever.
+    output_config: { effort: 'low' },
     // Search is available, not forced: the model calls it only when the
     // question needs current information.
     tools: [webSearchTool],

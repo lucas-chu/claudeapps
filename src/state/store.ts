@@ -38,6 +38,8 @@ export type Action =
   | { type: 'setBoxError'; id: string; error: string }
   | { type: 'setBoxSources'; id: string; sources: Source[] }
   | { type: 'setBoxPrompt'; id: string; prompt: string }
+  | { type: 'setBoxTitle'; id: string; title: string }
+  | { type: 'renameBox'; id: string; title: string }
   | { type: 'beginShadow'; id: string }
   | { type: 'appendShadow'; id: string; text: string }
   | { type: 'commitShadow'; id: string }
@@ -133,6 +135,19 @@ export function reducer(state: State, action: Action): State {
 
     case 'setBoxPrompt':
       return mapBox(state, action.id, (b) => ({ ...b, lastPrompt: action.prompt }))
+
+    // Automatic path: never touches titleEdited, so a later auto-title never
+    // clobbers a title the user has already renamed by hand.
+    case 'setBoxTitle':
+      return mapBox(state, action.id, (b) => ({ ...b, title: action.title }))
+
+    // Manual path: marks the box so auto-titling stops overwriting it.
+    case 'renameBox':
+      return mapBox(state, action.id, (b) => ({
+        ...b,
+        title: action.title,
+        titleEdited: true,
+      }))
 
     case 'beginShadow':
       return {

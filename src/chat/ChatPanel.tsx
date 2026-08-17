@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import remarkBreaks from 'remark-breaks'
 import type { Action, State } from '../state/store'
 import { blocksToText } from '../state/types'
 import type { useGeneration } from '../useGeneration'
@@ -60,7 +61,7 @@ export default function ChatPanel({
           <div key={t.id} id={`turn-${t.id}`} className={`turn turn-${t.role}`}>
             {t.label && <div className="turn-label">{t.label}</div>}
             <div className="turn-body">
-              <ReactMarkdown>{blocksToText(t.blocks)}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkBreaks]}>{blocksToText(t.blocks)}</ReactMarkdown>
             </div>
             {t.status === 'error' && (
               <div className="turn-error">

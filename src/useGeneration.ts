@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { generate } from './api/stream'
+import { useEffect, useRef, useState } from 'react'
+import { generate, requestTitle } from './api/stream'
+import { createRevealPacer } from './lib/revealPacer'
 import { buildMessages } from './state/context'
 import { findFreeSlot, screenToWorld } from './canvas/geometry'
 import type { Action, State } from './state/store'
@@ -19,6 +20,16 @@ export function useGeneration(
   viewportSize: { w: number; h: number },
 ) {
   const [busy, setBusy] = useState(false)
+
+  // A ref mirror of `state`, kept current via effect. `runCanvasPrompt` is an
+  // async closure captured at prompt-submission time; by the time its
+  // onDone fires the box may have been renamed, so the titleEdited check
+  // needs the latest state rather than the stale value closed over at call
+  // time.
+  const stateRef = useRef(state)
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
 
   function placeNewBox(prompt: string): Box {
     const center = screenToWorld(
@@ -88,29 +99,57 @@ export function useGeneration(
       },
     })
 
+    // The reveal pacer smooths the sentence-sized deltas the server sends
+    // into a steady per-frame trickle. Both the box and its chat-turn
+    // mirror are dispatched from the same paced chunk each tick, so they
+    // never drift out of sync with each other. `finalText` tracks the raw,
+    // unpaced accumulation so a completed generation's title request always
+    // sees the full reply, independent of how much the pacer has revealed.
+    let finalText = ''
+    const pacer = createRevealPacer((chunk) => {
+      if (inPlace) dispatch({ type: 'appendShadow', id: targetId, text: chunk })
+      else dispatch({ type: 'appendDelta', id: targetId, text: chunk })
+      dispatch({ type: 'appendTurnDelta', id: turnId, text: chunk })
+    })
+
     try {
       await generate(messages, {
         onDelta: (t) => {
-          if (inPlace) dispatch({ type: 'appendShadow', id: targetId, text: t })
-          else dispatch({ type: 'appendDelta', id: targetId, text: t })
-          dispatch({ type: 'appendTurnDelta', id: turnId, text: t })
+          finalText += t
+          pacer.push(t)
         },
         onSources: (sources) => {
           dispatch({ type: 'setBoxSources', id: targetId, sources })
           dispatch({ type: 'updateTurn', id: turnId, patch: { sources } })
         },
         onError: (message) => {
+          // Flush before settling so nothing already received is left
+          // half-revealed behind the pacer.
+          pacer.flush()
           if (inPlace) dispatch({ type: 'rollbackShadow', id: targetId, error: message })
           else dispatch({ type: 'setBoxError', id: targetId, error: message })
           dispatch({ type: 'updateTurn', id: turnId, patch: { status: 'error', error: message } })
         },
         onDone: () => {
+          pacer.flush()
           if (inPlace) dispatch({ type: 'commitShadow', id: targetId })
           else dispatch({ type: 'setBoxStatus', id: targetId, status: 'idle' })
           dispatch({ type: 'updateTurn', id: turnId, patch: { status: undefined } })
+
+          // Auto-title after the content is committed, without blocking or
+          // delaying the visible completion above. A box the user has
+          // already renamed by hand is left alone; a failed or empty title
+          // is a silent no-op.
+          const box = stateRef.current.boxes.find((b) => b.id === targetId)
+          if (!box?.titleEdited && finalText.trim().length > 0) {
+            void requestTitle(finalText).then((title) => {
+              if (title) dispatch({ type: 'setBoxTitle', id: targetId, title })
+            })
+          }
         },
       })
     } finally {
+      pacer.stop()
       setBusy(false)
     }
   }
@@ -136,15 +175,25 @@ export function useGeneration(
       },
     })
 
+    const pacer = createRevealPacer((chunk) =>
+      dispatch({ type: 'appendTurnDelta', id: turnId, text: chunk }),
+    )
+
     try {
       await generate(messages, {
-        onDelta: (t) => dispatch({ type: 'appendTurnDelta', id: turnId, text: t }),
+        onDelta: (t) => pacer.push(t),
         onSources: (sources) => dispatch({ type: 'updateTurn', id: turnId, patch: { sources } }),
-        onError: (message) =>
-          dispatch({ type: 'updateTurn', id: turnId, patch: { status: 'error', error: message } }),
-        onDone: () => dispatch({ type: 'updateTurn', id: turnId, patch: { status: undefined } }),
+        onError: (message) => {
+          pacer.flush()
+          dispatch({ type: 'updateTurn', id: turnId, patch: { status: 'error', error: message } })
+        },
+        onDone: () => {
+          pacer.flush()
+          dispatch({ type: 'updateTurn', id: turnId, patch: { status: undefined } })
+        },
       })
     } finally {
+      pacer.stop()
       setBusy(false)
     }
   }

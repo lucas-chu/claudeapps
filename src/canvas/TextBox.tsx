@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import remarkBreaks from 'remark-breaks'
 import type { Viewport } from './geometry'
 import { worldToScreen } from './geometry'
 import type { Action } from '../state/store'
@@ -25,10 +26,22 @@ export default function TextBox({
   onDragStart, onResizeStart, onSelect, onRetry,
 }: Props) {
   const [editing, setEditing] = useState(false)
+  const [titleEditing, setTitleEditing] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
   const p = worldToScreen({ x: box.x, y: box.y }, viewport)
   // Shadow text is the in-flight rewrite; showing it lets the user watch the
   // stream without committing over the original until it succeeds.
   const text = shadowText !== undefined ? shadowText : blocksToText(box.blocks)
+
+  function startTitleEdit() {
+    setTitleDraft(box.title ?? '')
+    setTitleEditing(true)
+  }
+
+  function commitTitle() {
+    dispatch({ type: 'renameBox', id: box.id, title: titleDraft.trim() })
+    setTitleEditing(false)
+  }
 
   return (
     <div
@@ -57,6 +70,46 @@ export default function TextBox({
         <span className="box-status">
           {box.status === 'streaming' ? '…' : box.status === 'error' ? '!' : ''}
         </span>
+
+        {titleEditing ? (
+          <input
+            className="box-title-input"
+            autoFocus
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onPointerDown={(e) => {
+              if (e.altKey || e.button === 1) return
+              e.stopPropagation()
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onBlur={commitTitle}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                commitTitle()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                setTitleEditing(false)
+              }
+            }}
+          />
+        ) : (
+          <span
+            className={`box-title ${box.title ? '' : 'is-placeholder'}`}
+            onPointerDown={(e) => {
+              if (e.altKey || e.button === 1) return
+              e.stopPropagation()
+            }}
+            onClick={(e) => {
+              e.stopPropagation()
+              startTitleEdit()
+            }}
+            title={box.title || 'Untitled'}
+          >
+            {box.title || 'Untitled'}
+          </span>
+        )}
+
         <button
           className="box-delete"
           onPointerDown={(e) => e.stopPropagation()}
@@ -80,7 +133,7 @@ export default function TextBox({
           />
         ) : (
           <div className="box-markdown">
-            <ReactMarkdown>{text}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkBreaks]}>{text}</ReactMarkdown>
           </div>
         )}
       </div>

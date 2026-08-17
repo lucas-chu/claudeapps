@@ -50,6 +50,38 @@ describe('boxes', () => {
   })
 })
 
+describe('box titles', () => {
+  it('setBoxTitle sets the title without marking it edited', () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a') })
+    s = reducer(s, { type: 'setBoxTitle', id: 'a', title: 'Auto title' })
+    expect(s.boxes[0].title).toBe('Auto title')
+    expect(s.boxes[0].titleEdited).toBeFalsy()
+  })
+
+  it('renameBox sets the title and marks it edited', () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a') })
+    s = reducer(s, { type: 'renameBox', id: 'a', title: 'My title' })
+    expect(s.boxes[0].title).toBe('My title')
+    expect(s.boxes[0].titleEdited).toBe(true)
+  })
+
+  it('renameBox overrides a prior auto-title', () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a') })
+    s = reducer(s, { type: 'setBoxTitle', id: 'a', title: 'Auto title' })
+    s = reducer(s, { type: 'renameBox', id: 'a', title: 'Manual title' })
+    expect(s.boxes[0].title).toBe('Manual title')
+    expect(s.boxes[0].titleEdited).toBe(true)
+  })
+
+  it('does not affect other boxes', () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a') })
+    s = reducer(s, { type: 'addBox', box: box('b') })
+    s = reducer(s, { type: 'renameBox', id: 'a', title: 'A title' })
+    expect(s.boxes.find((b) => b.id === 'b')?.title).toBeUndefined()
+    expect(s.boxes.find((b) => b.id === 'b')?.titleEdited).toBeFalsy()
+  })
+})
+
 describe('selection', () => {
   const twoBoxes = () => {
     let s = reducer(initialState, { type: 'addBox', box: box('a') })

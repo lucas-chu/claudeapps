@@ -21,6 +21,10 @@ export type Box = {
   fromTurnId?: string
   /** The prompt that last generated this box, so a failure can be retried. */
   lastPrompt?: string
+  /** Short auto-generated (or user-edited) label shown in the box header. */
+  title?: string
+  /** True once the user renames the box by hand, so auto-titling stops overwriting it. */
+  titleEdited?: boolean
 }
 
 export type Turn = {

@@ -38,9 +38,54 @@ body {
   border-radius: 10px 10px 0 0;
 }
 .box-delete { border: 0; background: none; cursor: pointer; font-size: 15px; color: #8a8580; }
+.box-title {
+  flex: 1; min-width: 0; margin: 0 6px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px; color: #5c5852; cursor: text;
+}
+.box-title.is-placeholder { color: #8a8580; font-style: italic; }
+.box-title-input {
+  flex: 1; min-width: 0; margin: 0 6px;
+  border: 0; outline: none; background: none;
+  font: inherit; font-size: 11px; color: #1a1a1a;
+}
 .box-body { flex: 1; overflow: auto; padding: 10px 12px; }
-.box-markdown p:first-child { margin-top: 0; }
-.box-markdown p:last-child { margin-bottom: 0; }
+.box-markdown, .turn-body { overflow-wrap: anywhere; }
+.box-markdown p:first-child, .turn-body p:first-child { margin-top: 0; }
+.box-markdown p:last-child, .turn-body p:last-child { margin-bottom: 0; }
+.box-markdown h1, .box-markdown h2, .box-markdown h3,
+.turn-body h1, .turn-body h2, .turn-body h3 {
+  margin: .6em 0 .3em; line-height: 1.25;
+}
+.box-markdown h1, .turn-body h1 { font-size: 1.25em; }
+.box-markdown h2, .turn-body h2 { font-size: 1.12em; }
+.box-markdown h3, .turn-body h3 { font-size: 1.03em; }
+.box-markdown h1:first-child, .box-markdown h2:first-child, .box-markdown h3:first-child,
+.turn-body h1:first-child, .turn-body h2:first-child, .turn-body h3:first-child { margin-top: 0; }
+.box-markdown ul, .box-markdown ol,
+.turn-body ul, .turn-body ol {
+  margin: .4em 0; padding-left: 1.4em;
+}
+.box-markdown li, .turn-body li { margin: .2em 0; }
+.box-markdown code, .turn-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .92em;
+  background: #f2f0ec; border-radius: 4px; padding: .1em .35em;
+}
+.box-markdown pre, .turn-body pre {
+  background: #f2f0ec; border-radius: 6px; padding: 8px 10px;
+  overflow-x: auto;
+}
+.box-markdown pre code, .turn-body pre code {
+  background: none; padding: 0;
+}
+.box-markdown blockquote, .turn-body blockquote {
+  margin: .4em 0; padding-left: .8em;
+  border-left: 3px solid #d8d5cf; color: #8a8580;
+}
+.box-markdown strong, .turn-body strong { font-weight: 600; }
+.box-markdown em, .turn-body em { font-style: italic; }
+.box-markdown a, .turn-body a { color: #c2643c; text-decoration: underline; }
 .box-editor { width: 100%; height: 100%; border: 0; resize: none; outline: none; font: inherit; }
 .box-errmsg {
   display: flex; align-items: center; gap: 8px;
