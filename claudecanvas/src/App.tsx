@@ -406,6 +406,10 @@ export default function App() {
           state={state}
           dispatch={dispatch}
           onRetry={gen.retryBox}
+          onRun={(id) => {
+            const box = state.boxes.find((b) => b.id === id)
+            if (box) void gen.runBoxAsPrompt(box)
+          }}
           autoEditId={autoEditId}
           onAutoEditConsumed={clearAutoEdit}
           onDropImages={(files, at) => void addImageBoxes(files, at)}

@@ -32,6 +32,24 @@ const webSearchTool: Anthropic.Messages.ToolUnion = {
 export const NO_KEY_MESSAGE = 'Add your Anthropic API key to start generating.'
 
 /**
+ * How many times a paused turn will be resumed before giving up.
+ *
+ * Web search runs a *server-side* sampling loop, and when it reaches its
+ * iteration limit the API returns a successful message with
+ * `stop_reason: "pause_turn"` — a partial answer, not an error. The client is
+ * expected to send the conversation back so the server resumes where it left
+ * off; the SDK does not do this for you. Without it, a research-heavy question
+ * simply stops mid-answer and looks finished.
+ *
+ * A bound is still needed so a pathological question can't loop forever, and
+ * hitting it says so rather than passing off a truncated answer as complete.
+ */
+export const MAX_CONTINUATIONS = 6
+
+export const TRUNCATED_MESSAGE =
+  'This answer was still going after several rounds of research and was cut short.'
+
+/**
  * The browser talks to the Anthropic API directly, so the user's key is the
  * only credential in play and never leaves their machine except to Anthropic.
  * `dangerouslyAllowBrowser` is what unlocks that path — the SDK refuses to run
@@ -90,29 +108,57 @@ export async function generate(
   }
 
   try {
-    const stream = makeClient(apiKey).messages.stream({
-      model: MODEL,
-      max_tokens: MAX_TOKENS,
-      messages: messages as Anthropic.Messages.MessageParam[],
-      // No `effort` override and no `thinking` param: adaptive thinking is the
-      // default on opus-5, and disabling it makes tool calls leak as plain text
-      // so web search would silently never run. Search is available, not
-      // forced — the model calls it only when the question needs it.
-      tools: [webSearchTool],
-    })
+    const client = makeClient(apiKey)
+    // Grows by one assistant turn each time the server pauses. The user's
+    // message is never repeated: the API detects the trailing server_tool_use
+    // block and resumes on its own, and an added "continue" would derail it.
+    let convo = [...messages] as Anthropic.Messages.MessageParam[]
+    const sources: Source[] = []
+    const seenUrls = new Set<string>()
 
-    stream.on('text', (text) => handlers.onDelta(text))
+    for (let round = 0; ; round++) {
+      const stream = client.messages.stream({
+        model: MODEL,
+        max_tokens: MAX_TOKENS,
+        messages: convo,
+        // No `effort` override and no `thinking` param: adaptive thinking is the
+        // default on opus-5, and disabling it makes tool calls leak as plain text
+        // so web search would silently never run. Search is available, not
+        // forced — the model calls it only when the question needs it.
+        tools: [webSearchTool],
+      })
 
-    const final = await stream.finalMessage()
+      stream.on('text', (text) => handlers.onDelta(text))
 
-    // A refusal is a successful HTTP 200 with empty or partial content. Report
-    // it as an error rather than leaving an empty box on screen.
-    if (final.stop_reason === 'refusal') {
-      handlers.onError('Claude declined this request.')
-      return
+      const final = await stream.finalMessage()
+
+      // A refusal is a successful HTTP 200 with empty or partial content. Report
+      // it as an error rather than leaving an empty box on screen.
+      if (final.stop_reason === 'refusal') {
+        handlers.onError('Claude declined this request.')
+        return
+      }
+
+      // Citations accumulate across rounds; a source found in round 1 must not
+      // be lost because round 3 is the one that finishes.
+      for (const source of extractSources(final.content as unknown[])) {
+        if (seenUrls.has(source.url)) continue
+        seenUrls.add(source.url)
+        sources.push(source)
+      }
+
+      if (final.stop_reason !== 'pause_turn') break
+
+      if (round >= MAX_CONTINUATIONS) {
+        // Say so rather than presenting a truncated answer as a complete one.
+        if (sources.length > 0) handlers.onSources(sources)
+        handlers.onError(TRUNCATED_MESSAGE)
+        return
+      }
+
+      convo = [...convo, { role: 'assistant', content: final.content }]
     }
 
-    const sources = extractSources(final.content as unknown[])
     if (sources.length > 0) handlers.onSources(sources)
 
     handlers.onDone()

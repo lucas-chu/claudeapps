@@ -175,6 +175,7 @@ export function useGeneration(
     prompt: string,
     selected: Box[],
     retryTargetId?: string,
+    labelOverride?: string,
   ): Promise<void> {
     const target = resolveTargetWithBusy(selected, retryTargetId, (id) =>
       isBoxActive(activeRef.current, id),
@@ -214,7 +215,7 @@ export function useGeneration(
           id: crypto.randomUUID(),
           role: 'user',
           blocks: [{ type: 'text', text: prompt }],
-          label: `→ ${retryTargetId ? 'retried a box' : describeAction(selected.length, singleKind)}`,
+          label: labelOverride ?? `→ ${retryTargetId ? 'retried a box' : describeAction(selected.length, singleKind)}`,
         },
       })
 
@@ -384,5 +385,22 @@ export function useGeneration(
   })
   const stableRetryBox = useCallback((boxId: string) => retryBoxRef.current(boxId), [])
 
-  return { runCanvasPrompt, runChatPrompt, retryBox: stableRetryBox, busy, activeCount, isBoxStreaming }
+  /**
+   * Sends a box's own text as the prompt, answering into a *new* box.
+   *
+   * Deliberately not an in-place rewrite: the box being run is the question,
+   * and overwriting it with the answer would destroy what you asked. Selection
+   * is passed as empty for the same reason — the text is the prompt itself,
+   * not extra context alongside one.
+   */
+  async function runBoxAsPrompt(box: Box): Promise<void> {
+    const text = blocksToText(box.blocks).trim()
+    if (!text) return
+    await runCanvasPrompt(text, [], undefined, '→ ran a box as a prompt')
+  }
+
+  return {
+    runCanvasPrompt, runChatPrompt, runBoxAsPrompt,
+    retryBox: stableRetryBox, busy, activeCount, isBoxStreaming,
+  }
 }
