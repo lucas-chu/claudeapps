@@ -44,6 +44,24 @@ def _clean(text: str, names: dict[str, str]) -> str:
     return MENTION.sub(lambda m: names.get(m.group(1), "@someone"), text).strip()
 
 
+def _resolve_mention(
+    bot_id: str, by_bot_id: dict[str, list[Teammate]], channel: str
+) -> Teammate | None:
+    """Which teammate a bot_user_id means, here.
+
+    Usually unambiguous. Once teammates outnumber identity-pool slots, several
+    teammates can share one Slack identity — in that case, prefer whichever of
+    them lives in this channel. If that still doesn't narrow it to one, the
+    identity can't be disambiguated from here, so no teammate is returned
+    (the mention is dropped rather than guessed).
+    """
+    candidates = by_bot_id.get(bot_id) or []
+    if len(candidates) == 1:
+        return candidates[0]
+    home_matches = [t for t in candidates if t.home_channel == channel]
+    return home_matches[0] if len(home_matches) == 1 else None
+
+
 def route(
     *,
     text: str,
@@ -55,8 +73,17 @@ def route(
     mentioned = set(MENTION.findall(text))
 
     teammates = registry.all_teammates()
-    by_bot_id = {t.bot_user_id: t for t in teammates}
-    names = {t.bot_user_id: t.name for t in teammates}
+    by_bot_id: dict[str, list[Teammate]] = {}
+    for t in teammates:
+        by_bot_id.setdefault(t.bot_user_id, []).append(t)
+    # Prefer the channel-disambiguated teammate for each bot_user_id so a
+    # shared identity reads as the right name in this channel; a genuinely
+    # ambiguous one falls back to whichever teammate is listed first, just
+    # for display — routing itself only trusts an unambiguous resolution.
+    names = {
+        bot_id: (_resolve_mention(bot_id, by_bot_id, channel) or candidates[0]).name
+        for bot_id, candidates in by_bot_id.items()
+    }
     names[clawdfather_id] = "ClawdFather"
     clean = _clean(text, names)
 
@@ -66,16 +93,19 @@ def route(
     # Mention order, not set order: two teammates in one message should always
     # resolve to the same one, and `mentioned` is a set.
     for bot_id in MENTION.findall(text):
-        if bot_id in by_bot_id:
-            return Decision(kind="direct", teammate=by_bot_id[bot_id], text=clean)
+        teammate = _resolve_mention(bot_id, by_bot_id, channel)
+        if teammate is not None:
+            return Decision(kind="direct", teammate=teammate, text=clean)
 
     # Follow-up in a thread that already has a speaker.
     if thread_ts:
         owner = registry.thread_owner(channel, thread_ts)
         if owner == CLAWDFATHER:
             return Decision(kind="clawdfather", text=clean)
-        if owner and owner in by_bot_id:
-            return Decision(kind="direct", teammate=by_bot_id[owner], text=clean)
+        if owner:
+            teammate = registry.teammate_by_name(owner)
+            if teammate is not None:
+                return Decision(kind="direct", teammate=teammate, text=clean)
 
     home = [t for t in teammates if t.home_channel == channel]
     if home:

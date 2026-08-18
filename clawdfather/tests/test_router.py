@@ -4,6 +4,8 @@ import pytest
 
 from app import registry, router
 
+from .conftest import make_teammate
+
 CF = "UCLAWDFATHER"
 
 
@@ -55,7 +57,7 @@ def test_unknown_mention_does_not_crash(scout):
 
 def test_followup_in_owned_thread_needs_no_mention(scout):
     """The bug this exists for: @Scout in #random, then a bare reply in-thread."""
-    registry.set_session("C_RANDOM", "111.1", "sesn_a", owner="U111")
+    registry.set_session("C_RANDOM", "111.1", "sesn_a", owner="Scout")
     d = route("what about their enterprise tier?", "C_RANDOM", thread_ts="111.1")
     assert d.kind == "direct" and d.teammate.name == "Scout"
 
@@ -67,13 +69,13 @@ def test_followup_reaches_clawdfather_too(scout):
 
 def test_thread_owner_beats_the_ambient_gate(scout, builder):
     """A claimed thread in a home channel goes straight to its owner."""
-    registry.set_session("C_STRAT", "333.3", "sesn_c", owner="U222")
+    registry.set_session("C_STRAT", "333.3", "sesn_c", owner="Builder")
     d = route("and the pricing?", "C_STRAT", thread_ts="333.3")
     assert d.kind == "direct" and d.teammate.name == "Builder"
 
 
 def test_explicit_mention_overrides_thread_owner(scout, builder):
-    registry.set_session("C_STRAT", "444.4", "sesn_d", owner="U111")
+    registry.set_session("C_STRAT", "444.4", "sesn_d", owner="Scout")
     d = route("<@U222> your turn", "C_STRAT", thread_ts="444.4")
     assert d.teammate.name == "Builder"
 
@@ -84,8 +86,32 @@ def test_unclaimed_thread_falls_through(scout):
 
 def test_owner_of_departed_teammate_falls_through(scout):
     """A thread owned by a teammate that no longer exists must not 500."""
-    registry.set_session("C_RANDOM", "666.6", "sesn_e", owner="UGONE")
+    registry.set_session("C_RANDOM", "666.6", "sesn_e", owner="Departed")
     assert route("still there?", "C_RANDOM", thread_ts="666.6") is None
+
+
+# --- shared identity: more teammates than Slack apps -----------------------
+
+
+def test_shared_identity_mention_resolves_by_home_channel(scout, builder):
+    """Helper shares Scout's bot_user_id; mentioning it is unambiguous in either home."""
+    registry.save_teammate(make_teammate("Helper", "U111", 1, "C_HELP", "help"))
+    assert route("<@U111> hi", "C_STRAT").teammate.name == "Scout"
+    assert route("<@U111> hi", "C_HELP").teammate.name == "Helper"
+
+
+def test_shared_identity_mention_outside_either_home_is_dropped(scout, builder):
+    """Can't tell Scout and Helper apart from a channel that's neither's home."""
+    registry.save_teammate(make_teammate("Helper", "U111", 1, "C_HELP", "help"))
+    assert route("<@U111> hi", "C_RANDOM") is None
+
+
+def test_shared_identity_thread_owner_is_unambiguous(scout, builder):
+    """Ownership is stored by name, so a shared identity never confuses a follow-up."""
+    registry.save_teammate(make_teammate("Helper", "U111", 1, "C_HELP", "help"))
+    registry.set_session("C_HELP", "777.7", "sesn_f", owner="Helper")
+    d = route("still there?", "C_HELP", thread_ts="777.7")
+    assert d.kind == "direct" and d.teammate.name == "Helper"
 
 
 # --- loop guard and noise filter ------------------------------------------

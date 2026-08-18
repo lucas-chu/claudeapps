@@ -185,7 +185,7 @@ def check_slack() -> None:
             )
             continue
         slot_scopes = _scopes(info)
-        missing = {"chat:write", "chat:write.customize"} - slot_scopes
+        missing = {"chat:write", "chat:write.customize", "reactions:write"} - slot_scopes
         if missing and slot_scopes:
             bad(
                 f"slot {slot.index} ({info['user']}): missing {', '.join(sorted(missing))}",
@@ -246,6 +246,8 @@ def check_registry() -> None:
     if not teammates:
         ok("no teammates hired yet (expected on a fresh setup)")
         return
+    from app import managed_agent
+
     pool_indexes = {s.index for s in config.identity_pool()}
     for teammate in teammates:
         if teammate.slot_index not in pool_indexes:
@@ -261,6 +263,17 @@ def check_registry() -> None:
             )
         else:
             ok(f"{teammate.name} → slot {teammate.slot_index}, #{teammate.home_channel_name}")
+
+        try:
+            agent = managed_agent.client.beta.agents.retrieve(teammate.agent_id)
+            tools = {getattr(t, "name", None) for t in (agent.tools or [])}
+            if "message_teammate" not in tools:
+                warn(
+                    f"{teammate.name}'s agent predates message_teammate/add_reaction",
+                    'run `python -c "from app import slack; slack.ensure_teammate_tools()"`',
+                )
+        except Exception as exc:
+            warn(f"{teammate.name}'s agent {teammate.agent_id} could not be checked", str(exc))
 
 
 def main() -> int:

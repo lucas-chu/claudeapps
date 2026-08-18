@@ -99,7 +99,9 @@ def post(
             thread_ts=thread_ts,
             username=username,
             icon_emoji=f":{icon_emoji}:" if icon_emoji else None,
-            unfurl_links=False,
+            # On: a bare GIF/image/article link a teammate pastes renders as
+            # an inline preview, which is most of how they "post a gif".
+            unfurl_links=True,
         )
         return resp["ts"]
     except SlackApiError as exc:
@@ -112,3 +114,15 @@ def update(client: WebClient, *, channel: str, ts: str, text: str) -> None:
         client.chat_update(channel=channel, ts=ts, text=text)
     except SlackApiError as exc:
         log.debug("update failed: %s", exc.response.get("error"))
+
+
+def react(client: WebClient, *, channel: str, ts: str, emoji: str) -> bool:
+    try:
+        client.reactions_add(channel=channel, timestamp=ts, name=emoji.strip(":"))
+        return True
+    except SlackApiError as exc:
+        error = exc.response.get("error", "")
+        if error == "already_reacted":
+            return True
+        log.warning("reaction failed: %s", error)
+        return False

@@ -20,10 +20,18 @@ def test_rehiring_a_name_reuses_its_slot(pool, scout):
     assert registry.claim_slot("scout").index == 1  # case-insensitive
 
 
-def test_exhausted_pool_raises_something_actionable(pool, monkeypatch, scout, builder):
+def test_teammates_share_slots_once_the_pool_is_exhausted(pool, monkeypatch, scout, builder):
+    """More teammates than slots must not block hiring — the least-loaded slot wins."""
     monkeypatch.setattr(registry, "identity_pool", lambda: pool[:2])
-    with pytest.raises(RuntimeError, match="Slack identities are in use"):
-        registry.claim_slot("Third")
+    assert registry.claim_slot("Third").index == 1  # scout(1) and builder(1) tie; lowest wins
+    registry.save_teammate(make_teammate("Third", "U111", 1, "C_THIRD", "third"))
+    assert registry.claim_slot("Fourth").index == 2  # slot 1 now has two teammates
+
+
+def test_claim_slot_with_no_pool_raises_something_actionable(monkeypatch):
+    monkeypatch.setattr(registry, "identity_pool", lambda: [])
+    with pytest.raises(RuntimeError, match="No Slack identities"):
+        registry.claim_slot("Anyone")
 
 
 def test_slot_for_returns_none_when_slot_is_gone(monkeypatch, scout):
@@ -87,6 +95,20 @@ def test_saving_the_same_name_updates_in_place(scout):
     registry.save_teammate(make_teammate("Scout", "U111", 1, "C_OTHER", "social"))
     assert len(registry.all_teammates()) == 1
     assert registry.teammate_by_bot_id("U111").home_channel_name == "social"
+
+
+def test_different_names_sharing_a_bot_id_do_not_collide(scout):
+    """The bug a bot_user_id-keyed store had: two teammates, one Slack identity."""
+    registry.save_teammate(make_teammate("Helper", "U111", 1, "C_HELP", "help"))
+    assert len(registry.all_teammates()) == 2
+    assert registry.teammate_by_name("Scout") is not None
+    assert registry.teammate_by_name("Helper") is not None
+
+
+def test_teammates_by_bot_id_lists_every_sharer(scout, builder):
+    registry.save_teammate(make_teammate("Helper", "U111", 1, "C_HELP", "help"))
+    assert sorted(t.name for t in registry.teammates_by_bot_id("U111")) == ["Helper", "Scout"]
+    assert [t.name for t in registry.teammates_by_bot_id("U222")] == ["Builder"]
 
 
 # --- prompts --------------------------------------------------------------

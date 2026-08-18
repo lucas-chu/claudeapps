@@ -97,7 +97,7 @@ def session_for_thread(
 ) -> str:
     """Get or open this thread's session, recording who speaks in it.
 
-    `owner` is a teammate's bot user ID or `registry.CLAWDFATHER`; the router
+    `owner` is a teammate's name or `registry.CLAWDFATHER`; the router
     uses it so in-thread follow-ups reach the same agent without a mention.
 
     A session belongs to one agent. If someone pulls a second teammate into a
@@ -172,6 +172,32 @@ def run_turn(
                 owner=owner,
             )
     return ""
+
+
+def run_side_channel_turn(
+    *,
+    agent_id: str,
+    agent_version: int | None,
+    text: str,
+    title: str = "Teammate-to-teammate",
+    tool_handler: ToolHandler | None = None,
+    on_progress: Progress | None = None,
+) -> str:
+    """One-off turn against a fresh session, outside the thread<->session map.
+
+    For agent-to-agent messages (`message_teammate`): opening a session here
+    must not touch `registry.sessions`, or a teammate looping another into a
+    human's thread would silently hand that thread's ownership to the callee.
+    Each call gets its own throwaway session, so there is nothing to retry on
+    staleness the way `run_turn` does for long-lived thread sessions.
+    """
+    session_id = _open_session(agent_id, agent_version, title)
+    with client.beta.sessions.events.stream(session_id) as stream:
+        client.beta.sessions.events.send(
+            session_id,
+            events=[{"type": "user.message", "content": [{"type": "text", "text": text}]}],
+        )
+        return _drain(stream, session_id, tool_handler=tool_handler, on_progress=on_progress)
 
 
 def _drain(stream, session_id, *, tool_handler, on_progress) -> str:
