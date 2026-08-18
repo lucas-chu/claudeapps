@@ -1,0 +1,7 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+
+# Files 03_managed_agent.py downloads from the session workspace.
+outputs/
