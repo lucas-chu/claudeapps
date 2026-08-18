@@ -55,7 +55,7 @@ afterEach(() => {
   server.close()
 })
 
-describe('agentsonly server', () => {
+describe('OnlyAgents server', () => {
   it('serves the page as HTML', async () => {
     const res = await fetch(`${baseUrl}/`)
     expect(res.status).toBe(200)

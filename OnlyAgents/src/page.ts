@@ -33,7 +33,7 @@ const protocol = {
 // make the gate dishonest in a different direction. This copy is exactly as
 // visible to a screen reader as it is to the eye.
 const VISIBLE_COPY = `
-  <h1>Agents Only</h1>
+  <h1>OnlyAgents</h1>
   <p>Three months of Claude Max (20x) — but only for whoever gets here by
   actually operating as an agent, not by reading a friendly set of
   instructions on the page.</p>
@@ -48,7 +48,7 @@ function renderHtml(): string {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Agents Only — Claude Max credits</title>
+<title>OnlyAgents — Claude Max credits</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!--
   This comment and the JSON block below are the entire protocol. There is no

@@ -10,13 +10,13 @@ export type Config = {
 }
 
 export function loadConfig(env: Record<string, string | undefined>): Config {
-  const supplied = env.AGENTSONLY_SECRET
+  const supplied = env.ONLYAGENTS_SECRET
   return {
-    port: Number(env.AGENTSONLY_PORT ?? 8788),
+    port: Number(env.ONLYAGENTS_PORT ?? 8788),
     // A generated secret is fine for a demo, but every restart invalidates
     // in-flight chains, so the server says so out loud at boot.
     secret: supplied ?? randomBytes(32).toString('hex'),
     ephemeralSecret: !supplied,
-    ttlMs: Number(env.AGENTSONLY_TTL_MS ?? 120_000),
+    ttlMs: Number(env.ONLYAGENTS_TTL_MS ?? 120_000),
   }
 }

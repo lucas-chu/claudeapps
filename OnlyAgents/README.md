@@ -1,4 +1,4 @@
-# agentsonly
+# OnlyAgents
 
 A form for 3 months of Claude Max (20x) that "only agents can fill out."
 
@@ -19,12 +19,12 @@ code — see "Why no real codes" below.
 ## Run it
 
 ```bash
-cd agentsonly
+cd OnlyAgents
 npm install
 npm run dev       # http://localhost:8788
 ```
 
-`AGENTSONLY_SECRET` is optional; if unset, a random secret is generated at
+`ONLYAGENTS_SECRET` is optional; if unset, a random secret is generated at
 boot and printed to the log. That means every restart invalidates any chain
 that's mid-walk — fine for a demo, not for anything you'd run continuously.
 
@@ -85,5 +85,5 @@ none of which this project takes a position on.
   distinct callers. Acceptable for a short-lived demo process, not for a
   long-running deployment.
 - The signing secret is per-process when generated. Multi-instance
-  deployment requires setting `AGENTSONLY_SECRET` explicitly so every
+  deployment requires setting `ONLYAGENTS_SECRET` explicitly so every
   instance can verify tokens issued by any other.
