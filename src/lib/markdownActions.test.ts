@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { toggleWrap, toggleLinePrefix, toggleOrderedList, insertLink } from './markdownActions'
+import {
+  toggleWrap, toggleLinePrefix, toggleOrderedList, insertLink,
+  toggleTaskAtLine, toggleTaskLine, indentLines, outdentLines, continueTaskOnEnter,
+} from './markdownActions'
 
 describe('toggleWrap', () => {
   it('wraps a selection in the marker', () => {
@@ -224,5 +227,146 @@ describe('insertLink', () => {
     const r = insertLink(text, 7, 13, 'https://x.test')
     expect(r.text.startsWith('before [')).toBe(true)
     expect(r.text.endsWith('](https://x.test) after')).toBe(true)
+  })
+})
+
+describe('toggleTaskAtLine', () => {
+  it('toggles an unchecked task to checked', () => {
+    const text = '- [ ] buy milk'
+    expect(toggleTaskAtLine(text, 1)).toBe('- [x] buy milk')
+  })
+
+  it('toggles a checked task back to unchecked', () => {
+    const text = '- [x] buy milk'
+    expect(toggleTaskAtLine(text, 1)).toBe('- [ ] buy milk')
+  })
+
+  it('preserves exact indentation and bullet marker style', () => {
+    const text = 'intro\n  * [ ] nested item\noutro'
+    expect(toggleTaskAtLine(text, 2)).toBe('intro\n  * [x] nested item\noutro')
+  })
+
+  it('leaves a non-task line unchanged', () => {
+    const text = 'just a plain line\nsecond line'
+    expect(toggleTaskAtLine(text, 1)).toBe(text)
+  })
+
+  it('leaves the text unchanged when the line number is out of range', () => {
+    const text = '- [ ] only line'
+    expect(toggleTaskAtLine(text, 5)).toBe(text)
+    expect(toggleTaskAtLine(text, 0)).toBe(text)
+  })
+
+  it('cascades checking to nested children', () => {
+    const text = '- [ ] parent\n  - [ ] child one\n  - [ ] child two'
+    expect(toggleTaskAtLine(text, 1)).toBe('- [x] parent\n  - [x] child one\n  - [x] child two')
+  })
+
+  it('cascades unchecking to nested children', () => {
+    const text = '- [x] parent\n  - [x] child one\n  - [x] child two'
+    expect(toggleTaskAtLine(text, 1)).toBe('- [ ] parent\n  - [ ] child one\n  - [ ] child two')
+  })
+
+  it('cascades through multiple nesting levels', () => {
+    const text = '- [ ] parent\n  - [ ] child\n    - [ ] grandchild'
+    expect(toggleTaskAtLine(text, 1)).toBe('- [x] parent\n  - [x] child\n    - [x] grandchild')
+  })
+
+  it('cascade stops at the first sibling (a line indented at or below the parent)', () => {
+    const text = '- [ ] parent\n  - [ ] child\n- [ ] sibling'
+    expect(toggleTaskAtLine(text, 1)).toBe('- [x] parent\n  - [x] child\n- [ ] sibling')
+  })
+
+  it('toggling a child only affects its own descendants, not its parent or siblings', () => {
+    const text = '- [ ] parent\n  - [ ] child\n  - [ ] child two'
+    expect(toggleTaskAtLine(text, 2)).toBe('- [ ] parent\n  - [x] child\n  - [ ] child two')
+  })
+})
+
+describe('toggleTaskLine', () => {
+  it('turns a single-line selection into a task item', () => {
+    const r = toggleTaskLine('buy milk', 2, 4)
+    expect(r.text).toBe('- [ ] buy milk')
+  })
+
+  it('turns every touched line into a task item', () => {
+    const text = 'first\nsecond\nthird'
+    const r = toggleTaskLine(text, 0, text.length)
+    expect(r.text).toBe('- [ ] first\n- [ ] second\n- [ ] third')
+    expect(r.start).toBe(0)
+    expect(r.end).toBe(r.text.length)
+  })
+
+  it('removes task syntax when every touched line already has it', () => {
+    const text = '- [ ] first\n- [x] second'
+    const r = toggleTaskLine(text, 0, text.length)
+    expect(r.text).toBe('first\nsecond')
+  })
+
+  it('toggling on then off restores the original text exactly', () => {
+    const text = 'alpha\nbeta'
+    const once = toggleTaskLine(text, 0, text.length)
+    const twice = toggleTaskLine(once.text, once.start, once.end)
+    expect(twice.text).toBe(text)
+  })
+})
+
+describe('indentLines / outdentLines', () => {
+  it('indents a single line by two spaces', () => {
+    expect(indentLines('hello', 0, 5).text).toBe('  hello')
+  })
+
+  it('indents every line the selection touches', () => {
+    const text = 'a\nb\nc'
+    expect(indentLines(text, 0, text.length).text).toBe('  a\n  b\n  c')
+  })
+
+  it('outdents a line that has two leading spaces', () => {
+    expect(outdentLines('  hello', 0, 7).text).toBe('hello')
+  })
+
+  it('round-trips: indent then outdent restores the original text', () => {
+    const text = 'first\nsecond'
+    const once = indentLines(text, 0, text.length)
+    const twice = outdentLines(once.text, once.start, once.end)
+    expect(twice.text).toBe(text)
+  })
+
+  it('outdent at zero indentation is a no-op and never corrupts the line', () => {
+    const text = 'no indent here'
+    expect(outdentLines(text, 0, text.length).text).toBe(text)
+  })
+
+  it('outdent trims a single stray leading space down to zero', () => {
+    expect(outdentLines(' one space', 0, 10).text).toBe('one space')
+  })
+})
+
+describe('continueTaskOnEnter', () => {
+  it('returns null for a line that is not a task item', () => {
+    expect(continueTaskOnEnter('just text', 4)).toBeNull()
+  })
+
+  it('inserts a new task item with the same indentation and bullet', () => {
+    const text = '  * [ ] buy milk'
+    const r = continueTaskOnEnter(text, text.length)
+    expect(r?.text).toBe('  * [ ] buy milk\n  * [ ] ')
+    expect(r?.start).toBe(r?.text.length)
+  })
+
+  it('splits an in-progress item at the caret, like a plain newline would', () => {
+    const text = '- [ ] buy milk'
+    const caret = '- [ ] buy'.length // right after "buy", before the space
+    const r = continueTaskOnEnter(text, caret)
+    // The space that separated "buy" and "milk" moves down with "milk" as
+    // literal content, same as a naive split of any plain text would do.
+    expect(r?.text).toBe('- [ ] buy\n- [ ]  milk')
+  })
+
+  it('clears an empty task item instead of continuing the list', () => {
+    const text = '- [ ] '
+    const r = continueTaskOnEnter(text, text.length)
+    expect(r?.text).toBe('')
+    expect(r?.start).toBe(0)
   })
 })

@@ -101,6 +101,40 @@ body {
 .box-markdown strong, .turn-body strong { font-weight: 600; }
 .box-markdown em, .turn-body em { font-style: italic; }
 .box-markdown a, .turn-body a { color: #c2643c; text-decoration: underline; }
+
+/* GFM task lists (`- [ ] thing`). Nesting is just ordinary list indentation,
+   already handled by the ul/ol padding-left rule above - a task item is a
+   normal <li> plus a checkbox, so it inherits that indentation for free at
+   every level. */
+.box-markdown li.task-list-item, .turn-body li.task-list-item {
+  list-style: none; /* the checkbox stands in for the bullet */
+}
+.box-markdown li.task-list-item input[type='checkbox'],
+.turn-body li.task-list-item input[type='checkbox'] {
+  margin: 0 .5em 0 0;
+  position: relative;
+  top: 1px; /* nudges the box onto the baseline of the first text line */
+  accent-color: #c2643c;
+  cursor: pointer;
+}
+.box-markdown li.task-list-item input[type='checkbox']:disabled,
+.turn-body li.task-list-item input[type='checkbox']:disabled {
+  cursor: default;
+}
+/* Completed items read as done - muted and struck through - but only their
+   own text: the rule is reset on any nested sublist so an unchecked child
+   under a checked parent still reads as outstanding. */
+.box-markdown li.task-list-item:has(> input:checked),
+.turn-body li.task-list-item:has(> input:checked) {
+  color: #8a8580;
+  text-decoration: line-through;
+  text-decoration-color: #d8d5cf;
+}
+.box-markdown li.task-list-item > ul, .box-markdown li.task-list-item > ol,
+.turn-body li.task-list-item > ul, .turn-body li.task-list-item > ol {
+  color: #1a1a1a;
+  text-decoration: none;
+}
 .box-editor { width: 100%; height: 100%; border: 0; resize: none; outline: none; font: inherit; }
 .box-errmsg {
   display: flex; align-items: center; gap: 8px;

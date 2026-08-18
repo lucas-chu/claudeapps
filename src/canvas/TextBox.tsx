@@ -1,13 +1,21 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { createContext, memo, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
+// Aliased: this file already uses the global DOM `Element` type (see the
+// pointer-capture casts below), which a bare `Element` import from 'hast'
+// would silently shadow.
+import type { Element as HastElement } from 'hast'
 import type { Viewport } from './geometry'
 import { worldToScreen } from './geometry'
 import DrawingBox from './DrawingBox'
 import type { Action } from '../state/store'
 import { blocksToText, type Box } from '../state/types'
-import { toggleWrap, toggleLinePrefix, toggleOrderedList, insertLink, type EditResult } from '../lib/markdownActions'
+import {
+  toggleWrap, toggleLinePrefix, toggleOrderedList, insertLink,
+  toggleTaskAtLine, toggleTaskLine, indentLines, outdentLines, continueTaskOnEnter,
+  type EditResult,
+} from '../lib/markdownActions'
 
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
 export type Handle = (typeof HANDLES)[number]
@@ -49,7 +57,88 @@ function MarkdownLink({
   )
 }
 
-const markdownComponents = { a: MarkdownLink }
+/**
+ * Line number (1-indexed, matching react-markdown's `node.position`) of the
+ * task-list `<li>` currently being rendered. Set by MarkdownListItem, read
+ * by MarkdownTaskCheckbox - see the comment on MarkdownListItem for why the
+ * line number has to be threaded through like this instead of read
+ * directly off the checkbox's own node.
+ */
+const TaskLineContext = createContext<number | undefined>(undefined)
+
+type TaskActions = { canToggle: boolean; onToggle: (line: number) => void }
+/**
+ * Provided once per TextBox render (see the `taskActions` useMemo below),
+ * carrying the dispatch + streaming-guard logic every checkbox in this box
+ * needs. Keeping this in context (rather than a prop) is what lets
+ * `markdownComponents` stay a single stable module-level object instead of
+ * being rebuilt - and thus react-markdown's whole tree re-diffed - on every
+ * render (see the big comment on TextBox above for why that matters).
+ */
+const TaskActionsContext = createContext<TaskActions | null>(null)
+
+/**
+ * Renders GFM task-list `<li>`s. remark-gfm's checkboxes are synthesized
+ * during the mdast -> hast conversion (see mdast-util-to-hast's `listItem`
+ * handler, which builds the `<input>` element by hand) and are never
+ * `state.patch`-ed with a source position, so the `<input>` node
+ * react-markdown hands MarkdownTaskCheckbox has `node.position === undefined`
+ * - there is no way to recover the source line from the checkbox node
+ * itself. The enclosing `<li>`, in contrast, *is* patched with the position
+ * of the original mdast listItem, so this component reads
+ * `node.position.start.line` once, here, and threads it down through
+ * context to whichever checkbox needs it.
+ */
+function MarkdownListItem({
+  node, className, children, ...rest
+}: React.LiHTMLAttributes<HTMLLIElement> & { node?: HastElement }) {
+  const isTask = node?.properties?.className?.includes('task-list-item') ?? false
+  const line = node?.position?.start.line
+  if (!isTask || line === undefined) {
+    return <li className={className} {...rest}>{children}</li>
+  }
+  return (
+    <li className={className} {...rest}>
+      <TaskLineContext.Provider value={line}>{children}</TaskLineContext.Provider>
+    </li>
+  )
+}
+
+/**
+ * Enabled, clickable stand-in for the `disabled` checkbox react-markdown
+ * renders by default for GFM task items. Maps a click back to its source
+ * line via TaskLineContext (set by the enclosing MarkdownListItem) rather
+ * than by matching text content or counting checkboxes - both break as
+ * soon as two items have the same text, or the list gets reordered.
+ */
+function MarkdownTaskCheckbox({
+  node: _node, ...rest
+}: React.InputHTMLAttributes<HTMLInputElement> & { node?: HastElement }) {
+  const line = useContext(TaskLineContext)
+  const actions = useContext(TaskActionsContext)
+  if (rest.type !== 'checkbox' || line === undefined || !actions) {
+    // No line to toggle (shouldn't happen for a real task checkbox, but
+    // fall back to the original read-only rendering rather than guessing).
+    return <input {...rest} readOnly />
+  }
+  return (
+    <input
+      {...rest}
+      disabled={!actions.canToggle}
+      onChange={() => actions.onToggle(line)}
+      onPointerDown={(e) => {
+        // Same alt/middle-button pan pass-through as the rest of this file
+        // (see the box/handle/header handlers below), plus: a checkbox
+        // click must toggle the task, not select or drag the box under it.
+        if (e.altKey || e.button === 1) return
+        e.stopPropagation()
+      }}
+      onClick={(e) => e.stopPropagation()}
+    />
+  )
+}
+
+const markdownComponents = { a: MarkdownLink, li: MarkdownListItem, input: MarkdownTaskCheckbox }
 
 const TOOLBAR_HEIGHT = 34
 const TOOLBAR_GAP = 6
@@ -133,6 +222,17 @@ function TextBox({
   const text = shadowText !== undefined ? shadowText : blocksToText(box.blocks)
   const imageOnly = box.blocks.length > 0 && box.blocks.every((b) => b.type === 'image')
   const drawingOnly = box.blocks.length > 0 && box.blocks.every((b) => b.type === 'drawing')
+  // The text is mid-rewrite (either a shadow stream in flight, or the box
+  // hasn't yet caught up to a commit) - toggling a checkbox now would race
+  // the stream and get clobbered the moment it replaces box.blocks.
+  const canToggleTasks = shadowText === undefined && box.status !== 'streaming'
+  const taskActions = useMemo<TaskActions>(
+    () => ({
+      canToggle: canToggleTasks,
+      onToggle: (line) => dispatch({ type: 'setBoxText', id: box.id, text: toggleTaskAtLine(text, line) }),
+    }),
+    [canToggleTasks, dispatch, box.id, text],
+  )
 
   // A box created via "+ New box" enters edit mode immediately, once, so the
   // user can start typing without a double-click. Image-only and
@@ -192,6 +292,32 @@ function TextBox({
   }
 
   function handleEditorKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Tab') {
+      // The main nesting affordance: Tab/Shift-Tab indent or outdent every
+      // line the selection touches. preventDefault keeps focus in the
+      // textarea instead of jumping to the next focusable element.
+      e.preventDefault()
+      applyAction((t, s, en) => (e.shiftKey ? outdentLines(t, s, en) : indentLines(t, s, en)))
+      return
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const el = textareaRef.current
+      if (el && el.selectionStart != null && el.selectionStart === el.selectionEnd) {
+        const result = continueTaskOnEnter(text, el.selectionStart)
+        if (result) {
+          e.preventDefault()
+          dispatch({ type: 'setBoxText', id: box.id, text: result.text })
+          requestAnimationFrame(() => {
+            el.focus()
+            el.setSelectionRange(result.start, result.end)
+            updateSelection()
+          })
+          return
+        }
+      }
+    }
+
     const mod = e.metaKey || e.ctrlKey
     if (!mod) return
     if (e.key === 'b' || e.key === 'B') {
@@ -370,6 +496,11 @@ function TextBox({
                   onClick={() => applyAction((t, s, en) => toggleOrderedList(t, s, en))}>
                   1.
                 </button>
+                <button type="button" className="md-toolbar-btn" title="Task list"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => applyAction((t, s, en) => toggleTaskLine(t, s, en))}>
+                  ☑
+                </button>
                 <button type="button" className="md-toolbar-btn" title="Quote"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => applyAction((t, s, en) => toggleLinePrefix(t, s, en, '> '))}>
@@ -407,9 +538,11 @@ function TextBox({
           </div>
         ) : (
           <div className="box-markdown">
-            <ReactMarkdown remarkPlugins={[remarkBreaks, remarkGfm]} components={markdownComponents}>
-              {text}
-            </ReactMarkdown>
+            <TaskActionsContext.Provider value={taskActions}>
+              <ReactMarkdown remarkPlugins={[remarkBreaks, remarkGfm]} components={markdownComponents}>
+                {text}
+              </ReactMarkdown>
+            </TaskActionsContext.Provider>
           </div>
         )}
       </div>
