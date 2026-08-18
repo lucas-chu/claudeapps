@@ -12,6 +12,8 @@ import {
 } from './canvas/geometry'
 import { blocksToText } from './state/types'
 import { fileToDownscaledDataUrl, sortImageCandidates, isImageFile } from './lib/imagePaste'
+import ApiKeyDialog from './ApiKeyDialog'
+import { loadApiKey } from './state/apiKey'
 
 const NEW_BOX = { w: 360, h: 260 }
 // Drawing needs more room than a text box to be usable.
@@ -77,6 +79,12 @@ export default function App() {
   const clearAutoEdit = useCallback(() => setAutoEditId(null), [])
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // No key means nothing can be generated, so the dialog opens as a gate on
+  // first run and is not dismissible until one is saved. Afterwards it's an
+  // ordinary settings dialog reachable from the toolbar.
+  const [hasKey, setHasKey] = useState(() => loadApiKey() !== null)
+  const [keyDialogOpen, setKeyDialogOpen] = useState(() => loadApiKey() === null)
   // Latches once autosave starts failing (e.g. localStorage quota exceeded
   // by a canvas full of images), so the toast fires once per failure streak
   // instead of every 500ms, and clears again the moment a save succeeds.
@@ -442,6 +450,13 @@ export default function App() {
           >
             Fit
           </button>
+          <button
+            className="key-btn"
+            onClick={() => setKeyDialogOpen(true)}
+            title="Your Anthropic API key"
+          >
+            Key
+          </button>
         </div>
         <input
           ref={fileInputRef}
@@ -455,6 +470,18 @@ export default function App() {
         <Omnibar state={state} gen={gen} />
       </div>
       <ChatPanel state={state} dispatch={dispatch} gen={gen} onPromote={promote} />
+      {keyDialogOpen && (
+        <ApiKeyDialog
+          dismissible={hasKey}
+          onClose={() => setKeyDialogOpen(false)}
+          onSaved={() => {
+            const key = loadApiKey()
+            setHasKey(key !== null)
+            // "Forget key" also lands here; without a key the gate must return.
+            setKeyDialogOpen(key === null)
+          }}
+        />
+      )}
     </div>
   )
 }

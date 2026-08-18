@@ -5,3 +5,12 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+
+# macOS Finder metadata. Never useful in a repo, and easy to commit by accident
+# from a directory that was opened in Finder.
+.DS_Store
+
+# Runtime logs. checkclaude/bot.log is deliberately kept for now — it is a
+# captured run, not incidental output — so it is excepted rather than removed.
+*.log
+!checkclaude/bot.log

@@ -1,4 +1,9 @@
-# Cove Canvas Implementation Plan
+# Claude Canvas Implementation Plan
+
+> Archived as written on 2026-08-12, when the project was called Cove Canvas.
+> It shipped as **Claude Canvas**; the body below is left as the record of the
+> build, so its paths, package name and storage key are the pre-rename ones.
+
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

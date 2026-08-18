@@ -3,7 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Cove Canvas</title>
+    <title>Claude Canvas</title>
+    <meta
+      name="description"
+      content="An infinite canvas of boxes Claude writes into. Runs entirely in your browser with your own Anthropic API key."
+    />
+    <meta name="theme-color" content="#faf9f7" />
+    <!-- Inlined so the page makes no extra request and needs no static asset;
+         without it the browser requests /favicon.ico and logs a 404. -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23c2643c'/%3E%3Crect x='7' y='9' width='11' height='8' rx='1.5' fill='%23faf9f7'/%3E%3Crect x='14' y='15' width='11' height='8' rx='1.5' fill='%23faf9f7' opacity='.75'/%3E%3C/svg%3E"
+    />
   </head>
   <body>
     <div id="root"></div>

@@ -1,4 +1,9 @@
-# Cove Canvas — Design
+# Claude Canvas — Design
+
+> Archived as written on 2026-08-12, when the project was called Cove Canvas.
+> It shipped as **Claude Canvas**; the body below is left as the record of the
+> build, so its paths, package name and storage key are the pre-rename ones.
+
 
 **Date:** 2026-08-12
 **Status:** Approved
