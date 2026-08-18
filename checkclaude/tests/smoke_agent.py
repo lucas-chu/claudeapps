@@ -54,12 +54,25 @@ async def main() -> int:
         print(f"FAILED: {run.error}")
         return 1
 
-    reply = guard(run.fact_check, run.retrieved_urls, config.max_post_chars, config.reply_style)
+    reply = guard(
+        run.fact_check,
+        run.retrieved_urls,
+        config.max_post_chars,
+        config.reply_style,
+        config.thread_posts,
+    )
 
     print("\n" + "=" * 60)
-    print(reply.text)
+    for index, text in enumerate(reply.posts, start=1):
+        if len(reply.posts) > 1:
+            print(f"[post {index}/{len(reply.posts)}]")
+        print(text)
+        print(f"[{tweet_length(text)}/{config.max_post_chars}]")
     print("=" * 60)
-    print(f"\nlength:     {tweet_length(reply.text)}/{config.max_post_chars}")
+    # What a DM asking the same thing would get back, unabridged.
+    print("\n--- the private (DM) rendering ---")
+    print(reply.long_form(config.max_dm_chars))
+    print("--- /private ---\n")
     print(f"claim:      {reply.fact_check.claim}")
     print(f"confidence: {reply.fact_check.confidence}")
     print(f"research:   {run.research_summary()}")

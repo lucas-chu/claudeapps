@@ -38,13 +38,16 @@ from config import Config, config
 from context import CheckContext
 from prompts import (
     DELEGATION_GUIDANCE,
+    DM_NOTE,
+    DM_STYLE_GUIDANCE,
     FOLLOWUP_NOTE,
     INVESTIGATOR_PROMPT,
     OBJECTIVE,
     STYLE_GUIDANCE,
     SYSTEM_PROMPT,
+    THREAD_NOTE,
 )
-from verdict import FactCheck, Source, SubClaim
+from verdict import CARD, COUNTER_RESERVE, FactCheck, Source, SubClaim
 
 log = logging.getLogger(__name__)
 
@@ -353,21 +356,43 @@ def build_options(cfg: Config, captured: dict[str, Any]) -> ClaudeAgentOptions:
     )
 
 
+def answer_shape(cfg: Config, ctx: CheckContext) -> str:
+    """How much room the answer has, and what shape it should take.
+
+    The character budget is derived from where the answer is going rather than
+    fixed at 280: one post, a thread of posts, or a DM. Getting this wrong in
+    either direction is expensive - too low and the agent writes a worse answer
+    than the channel could carry, too high and the guard has to cut it.
+    """
+    if ctx.is_private:
+        # The full renderer appends sources and the sub-claim breakdown after the
+        # body, so the body itself gets a fraction of the 10,000-character ceiling.
+        return DM_STYLE_GUIDANCE.format(budget=max(280, min(cfg.max_dm_chars // 4, 2000)))
+
+    # Reserve room for the sources line, plus the verdict header in card style.
+    reserved = 90 if cfg.reply_style == CARD else 75
+    guidance = STYLE_GUIDANCE.get(cfg.reply_style, STYLE_GUIDANCE["conversational"])
+    posts = cfg.thread_posts
+    if posts <= 1:
+        return guidance.format(budget=max(120, cfg.max_post_chars - reserved))
+
+    per_post = cfg.max_post_chars - COUNTER_RESERVE
+    budget = max(120, posts * per_post - reserved)
+    return guidance.format(budget=budget) + "\n\n" + THREAD_NOTE.format(posts=posts)
+
+
 async def fact_check(ctx: CheckContext, cfg: Config = config) -> AgentRun:
     """Investigate the claim in ``ctx`` and return a structured verdict."""
     captured: dict[str, Any] = {}
     run = AgentRun()
 
-    # Reserve room for the sources line, plus the verdict header in card style.
-    reserved = 90 if cfg.reply_style == "card" else 75
-    budget = max(120, cfg.max_post_chars - reserved)
-    style_guidance = STYLE_GUIDANCE.get(cfg.reply_style, STYLE_GUIDANCE["conversational"])
-
     prompt = OBJECTIVE.format(
         today=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         context=ctx.render(),
-        style=style_guidance.format(budget=budget),
+        style=answer_shape(cfg, ctx),
     )
+    if ctx.is_private:
+        prompt = f"{prompt}\n{DM_NOTE}"
     if ctx.is_followup:
         prompt = f"{prompt}\n{FOLLOWUP_NOTE}"
 
