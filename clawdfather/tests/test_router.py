@@ -9,8 +9,10 @@ from .conftest import make_teammate
 CF = "UCLAWDFATHER"
 
 
-def route(text, channel, thread_ts=None):
-    return router.route(text=text, channel=channel, clawdfather_id=CF, thread_ts=thread_ts)
+def route(text, channel, thread_ts=None, slots=None):
+    return router.route(
+        text=text, channel=channel, clawdfather_id=CF, thread_ts=thread_ts, slots=slots
+    )
 
 
 # --- who owns the message -------------------------------------------------
@@ -101,9 +103,96 @@ def test_shared_identity_mention_resolves_by_home_channel(scout, builder):
 
 
 def test_shared_identity_mention_outside_either_home_is_dropped(scout, builder):
-    """Can't tell Scout and Helper apart from a channel that's neither's home."""
+    """Can't tell Scout and Helper apart, and the identity isn't in the pool."""
     registry.save_teammate(make_teammate("Helper", "U111", 1, "C_HELP", "help"))
     assert route("<@U111> hi", "C_RANDOM") is None
+
+
+# --- the Clawds: a pooled identity answering as itself ----------------------
+
+
+def test_ambiguous_clawd_mention_greets_instead_of_dropping(scout, builder, clawds):
+    """The silence this exists for: Scout and Helper share Clawd One."""
+    registry.save_teammate(make_teammate("Helper", "U111", 1, "C_HELP", "help"))
+    d = route("<@U111> hi", "C_RANDOM", slots=clawds)
+    assert d.kind == "greeting"
+    assert d.slot.index == 1
+    assert sorted(t.name for t in d.candidates) == ["Helper", "Scout"]
+
+
+def test_unhired_clawd_mention_greets_with_no_candidates(scout, clawds):
+    """Clawd Three exists in the pool but nobody has been hired into it."""
+    d = route("<@U333> anyone home?", "C_RANDOM", slots=clawds)
+    assert d.kind == "greeting" and d.slot.index == 3 and d.candidates == []
+
+
+def test_greeting_text_reads_as_the_identity_not_a_teammate(scout, builder, clawds):
+    """Nobody asked for Scout, so the mention must not read as "Scout"."""
+    registry.save_teammate(make_teammate("Helper", "U111", 1, "C_HELP", "help"))
+    assert route("<@U111> hi", "C_RANDOM", slots=clawds).text == "Clawd One hi"
+
+
+def test_unhired_clawd_mention_is_not_someone(scout, clawds):
+    assert route("<@U333> hi", "C_RANDOM", slots=clawds).text == "Clawd Three hi"
+
+
+def test_resolvable_clawd_mention_still_reaches_its_teammate(scout, builder, clawds):
+    """Being in the pool must not stop an unambiguous mention resolving."""
+    d = route("<@U111> research Cursor pricing", "C_RANDOM", slots=clawds)
+    assert d.kind == "direct" and d.teammate.name == "Scout"
+
+
+def test_ambiguous_clawd_mention_beats_the_ambient_gate(scout, clawds):
+    """Two teammates on one identity, both living here: an explicit mention
+    must still get an answer rather than being gated into silence."""
+    registry.save_teammate(make_teammate("Probe", "U111", 1, "C_STRAT", "strategy"))
+    d = route("<@U111> who's around?", "C_STRAT", slots=clawds)
+    assert d.kind == "greeting" and d.slot.index == 1
+
+
+def test_thread_owner_beats_an_ambiguous_clawd_mention(scout, builder, clawds):
+    """A claimed thread keeps its speaker; the greeting is the fallback."""
+    registry.save_teammate(make_teammate("Helper", "U111", 1, "C_HELP", "help"))
+    registry.set_session("C_RANDOM", "888.8", "sesn_g", owner="Builder")
+    d = route("<@U111> hi", "C_RANDOM", thread_ts="888.8", slots=clawds)
+    assert d.kind == "direct" and d.teammate.name == "Builder"
+
+
+def test_clawdfather_mention_beats_a_clawd_mention(scout, clawds):
+    d = route(f"<@{CF}> <@U333> who works here?", "C_RANDOM", slots=clawds)
+    assert d.kind == "clawdfather"
+
+
+@pytest.mark.parametrize(
+    "text,index",
+    [
+        ("clawd one, you around?", 1),
+        ("Clawd Two can you help", 2),
+        ("is clawd 3 alive?", 3),
+        ("clawd3?", 3),
+        ("CLAWD-2 hello", 2),
+    ],
+)
+def test_plain_text_clawd_name_greets(scout, clawds, text, index):
+    d = route(text, "C_RANDOM", slots=clawds)
+    assert d.kind == "greeting" and d.slot.index == index
+
+
+def test_clawdfather_is_not_a_clawd(scout, clawds):
+    """A bare `clawd` with no number must never resolve to a pooled identity."""
+    assert route("ClawdFather hired someone", "C_RANDOM", slots=clawds) is None
+    assert route("clawdfather", "C_RANDOM", slots=clawds) is None
+
+
+def test_unconfigured_clawd_index_is_dropped(scout, clawds):
+    """There is no Clawd Seven to answer."""
+    assert route("clawd seven?", "C_RANDOM", slots=clawds) is None
+
+
+def test_ambient_beats_a_plain_text_clawd_name(scout, clawds):
+    """On-charter work in a home channel is worth more than an introduction."""
+    d = route("clawd two, how do we price against Cursor?", "C_STRAT", slots=clawds)
+    assert d.kind == "ambient" and [t.name for t in d.candidates] == ["Scout"]
 
 
 def test_shared_identity_thread_owner_is_unambiguous(scout, builder):

@@ -40,6 +40,16 @@ class Slot:
     index: int
     bot_token: str
     bot_user_id: str
+    name: str = ""  # what this app is called in Slack, if it isn't "Clawd N"
+
+    @property
+    def display_name(self) -> str:
+        """How to refer to the identity itself, rather than to a teammate on it.
+
+        Only used when the identity has to speak as itself — an @-mention it
+        can't pin to one teammate, or a bare `clawd two` in the text.
+        """
+        return self.name or f"Clawd {self.index}"
 
 
 def identity_pool() -> list[Slot]:
@@ -49,7 +59,14 @@ def identity_pool() -> list[Slot]:
         token = os.environ.get(f"SLACK_TEAMMATE_{i}_BOT_TOKEN", "").strip()
         user_id = os.environ.get(f"SLACK_TEAMMATE_{i}_USER_ID", "").strip()
         if token and user_id:
-            slots.append(Slot(index=i, bot_token=token, bot_user_id=user_id))
+            slots.append(
+                Slot(
+                    index=i,
+                    bot_token=token,
+                    bot_user_id=user_id,
+                    name=os.environ.get(f"SLACK_TEAMMATE_{i}_NAME", "").strip(),
+                )
+            )
     return slots
 
 
