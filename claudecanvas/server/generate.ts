@@ -306,8 +306,8 @@ export async function handleConvertImage(
   // controls can influence a filesystem path or, via execFile's argv array,
   // be interpreted as shell syntax.
   const id = randomUUID()
-  const inPath = join(tmpdir(), `cove-convert-${id}.heic`)
-  const outPath = join(tmpdir(), `cove-convert-${id}.jpg`)
+  const inPath = join(tmpdir(), `claude-canvas-convert-${id}.heic`)
+  const outPath = join(tmpdir(), `claude-canvas-convert-${id}.jpg`)
 
   try {
     await writeFile(inPath, bytes)

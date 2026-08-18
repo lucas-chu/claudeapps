@@ -18,8 +18,11 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
   return {
     apiKey,
     // Deliberately NOT ANTHROPIC_BASE_URL: an inherited shell variable must
-    // never silently redirect requests. Override explicitly with COVE_BASE_URL.
-    baseURL: env.COVE_BASE_URL ?? DEFAULT_BASE_URL,
-    port: Number(env.COVE_PORT ?? 8787),
+    // never silently redirect requests. Override explicitly with
+    // CANVAS_BASE_URL. The COVE_* names are what these were called before the
+    // rename and still work, so an existing .env doesn't quietly start
+    // pointing somewhere else.
+    baseURL: env.CANVAS_BASE_URL ?? env.COVE_BASE_URL ?? DEFAULT_BASE_URL,
+    port: Number(env.CANVAS_PORT ?? env.COVE_PORT ?? 8787),
   }
 }

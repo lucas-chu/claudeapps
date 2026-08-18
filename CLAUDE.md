@@ -3,21 +3,99 @@
 Take-home: three projects on one spine — **Messages API** (Claude responds) →
 **Agent SDK** (Claude investigates) → **Managed Agents** (Claude persists).
 
-Two are built. They are sibling directories and share nothing — separate
+All three are built. They are sibling directories and share nothing — separate
 dependencies, separate `.env`, separate entrypoints. Run every command from
 inside the project directory, never from the repo root.
 
 | Project | Where | What |
 |---|---|---|
+| Messages API | `claudecanvas/` | Claude Canvas — an infinite canvas of boxes Claude writes into |
 | Agent SDK | `checkclaude/` | X bot that fact-checks any post you reply to with `@CheckClaude is this true?` |
 | Managed Agents | `clawdfather/` | `@ClawdFather`, a Slack agent that hires other agents |
-| Messages API | — | unbuilt |
 
 Each project's own README is its authoritative doc; the root `README.md` is only
-an index. Everything below is about `checkclaude/` — for `clawdfather/`, read
-[`clawdfather/README.md`](./clawdfather/README.md).
+an index. The sections below are per-project; anything after **Repo-wide**
+applies to all three.
 
-## Commands (checkclaude)
+---
+
+# Claude Canvas — `claudecanvas/`
+
+## Commands
+
+```bash
+cd claudecanvas
+npm install
+cp .env.example .env      # ANTHROPIC_API_KEY=sk-ant-...
+
+npm run dev               # Vite on :5173 + API server on :8787, one command
+npm test                  # 237 unit tests, no network, no API key
+npm run typecheck
+npm run build
+```
+
+`npm test` is the fastest signal. The server refuses to start without a key
+rather than failing on the first prompt.
+
+## Architecture
+
+```
+src/App.tsx           wiring: keyboard, selection, undo/redo, view reset/fit
+src/Omnibar.tsx       the prompt bar — behaviour depends on what's selected
+src/canvas/           geometry.ts · Canvas · TextBox · DrawingBox (Excalidraw)
+src/chat/ChatPanel.tsx  the thread — the same one the canvas prompts against
+src/state/            types · store (reducer) · history (undo) · context (request
+                      assembly) · persist (localStorage)
+src/useGeneration.ts  every generation path funnels through here
+server/               config preflight · generate (SSE) · sources
+```
+
+The browser never talks to the Anthropic API. It calls `/api/generate` (SSE:
+`delta`, `sources`, `error`, `done`), `/api/title`, and `/api/convert-image`.
+
+## Invariants — don't break these
+
+Each has tests.
+
+1. **Stored coordinates are world coordinates.** `canvas/geometry.ts` is the
+   only place screen↔world math lives. Scattering `* zoom` into event handlers
+   is how this class of app breaks subtly under zoom.
+2. **In-place rewrites go through a shadow buffer.** Streamed text accumulates
+   in `state.shadow` and only replaces a box's content on `commitShadow`, so a
+   failed rewrite can't destroy text already on the canvas.
+3. **History is built from completed exchanges only.** `completedTurns()` drops
+   streaming and errored turns. Without it, three rapid prompts make each one
+   inherit the others' unanswered questions and answer all of them — observed
+   live, producing "Fish: clownfish. Bird: robin."
+4. **The key lives in the server process.** Never in `src/`, never in a Vite
+   bundle, never in an SSE payload. Startup logs the key's *source*, not the key.
+5. **Model is `claude-opus-5`, and the sampling params stay off.** Don't send
+   `temperature`, `top_p`, `top_k`, or a `thinking` param. Disabling thinking on
+   opus-5 makes tool calls leak as plain text — web search silently never runs.
+
+## Environment notes
+
+- HEIC conversion shells out to macOS `sips`; other platforms get a clear
+  "requires macOS" message rather than a silent failure.
+- `MAX_TURNS = 6` — history caps at the last six turns. Full box contents come
+  from selection instead, so history stays cheap.
+- localStorage caps around 8–9MB (~25–30 photos). Past that `save()` returns
+  false and `App.tsx` raises a toast — don't let a refactor drop that return
+  value on the floor and make the failure silent again.
+- The project was called **Cove Canvas** until it was renamed. Two compatibility
+  shims exist because of it, and both have tests: `load()` falls back to the
+  `cove-canvas:v1` localStorage key (and `save()` clears it only once the new
+  key is written), and `loadConfig` still accepts `COVE_BASE_URL`/`COVE_PORT`
+  alongside `CANVAS_*`. The archived docs under `docs/superpowers/` keep the
+  old names on purpose.
+- The lockfile is authored on macOS. `npm ci` on Linux rewrites its optional
+  platform deps, so CI uses `npm install` and leaves the lockfile alone.
+
+---
+
+# CheckClaude — `checkclaude/`
+
+## Commands
 
 ```bash
 cd checkclaude
@@ -85,17 +163,35 @@ These are the reason the thing is trustworthy. Each has tests.
   `stream` (filtered stream) is implemented but needs Pro/Enterprise.
 - Posting needs OAuth 1.0a with the app set to **Read and write**, and tokens
   **regenerated after** changing that permission — otherwise posts 403.
+- `CHECKCLAUDE_EFFORT=high` takes ~2–4 min per check; `medium` roughly halves it.
+
+---
+
+# ClawdFather — `clawdfather/`
+
+Read [`clawdfather/README.md`](./clawdfather/README.md).
+
+---
+
+# Repo-wide
+
+## CI
+
+One workflow per project, all firing on every PR:
+
+| Workflow | Runs |
+|---|---|
+| `.github/workflows/canvas.yml` | `claudecanvas/`: typecheck + vitest + build |
+| `.github/workflows/tests.yml` | `checkclaude/`: pytest |
+| `.github/workflows/ci.yml` | `clawdfather/`: ruff + pytest + import check |
 
 ## Open threads
 
-- Project 1 (Messages API — Claude *responds*) is unbuilt.
 - Scope question: CheckClaude is a fact-checker only. The PRD lists
   "general-purpose X assistant" under *do not build*, so non-fact-check asks
   aren't routed anywhere.
-- `CHECKCLAUDE_EFFORT=high` takes ~2–4 min per check; `medium` roughly halves it.
-- CI is split by project: `.github/workflows/tests.yml` runs `pytest` in
-  `checkclaude/`, `.github/workflows/ci.yml` runs `ruff` + `pytest` in
-  `clawdfather/`. Both fire on every PR.
+- Claude Canvas is single-user and local by design — no auth, no server-side
+  persistence. Boxes live in localStorage and nowhere else.
 
 ## Conventions
 

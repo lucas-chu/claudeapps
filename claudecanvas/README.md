@@ -1,4 +1,4 @@
-# Cove Canvas
+# Claude Canvas
 
 An infinite canvas of draggable, resizable boxes that Claude writes into, with a
 chat panel alongside. Both surfaces share one conversation, so what the model
@@ -23,6 +23,11 @@ server on 8787 (with `tsx watch`, so server edits reload themselves). Vite proxi
 If the key is missing the server exits immediately with a readable message rather
 than starting and failing on the first prompt. On startup it prints which source
 the key came from (`.env` or the environment) — never the key itself.
+
+`CANVAS_PORT` moves the API server off 8787, and `CANVAS_BASE_URL` points it at a
+different Anthropic endpoint. That override is deliberately *not* spelled
+`ANTHROPIC_BASE_URL` — an inherited shell variable must never silently redirect
+requests.
 
 ## What you can do
 
@@ -53,6 +58,17 @@ converted automatically. Select an image box and prompt to ask about it.
 toolbar (bold, italic, code, heading, lists, quote, link), or use ⌘B / ⌘I / ⌘K.
 Pasting a URL over selected text turns it into a link.
 
+**Drawing.** **Draw** adds an Excalidraw box for freehand sketches, shapes and
+arrows. Select one and prompt to ask Claude about it — it sees a rendered preview.
+
+**Checklists.** Markdown task lists (`- [ ]`) render as real checkboxes you can
+tick, including nested ones; checking a parent checks its sub-list.
+
+**Undo/redo.** ⌘Z and ⌘⇧Z (or Ctrl+Y) cover box edits — add, delete, move,
+resize, text. One drag or one typing burst is a single step. Streaming churn,
+panning, zooming and selection are deliberately left out. Inside a text field or
+a drawing box, the browser's and Excalidraw's own undo win instead.
+
 **Titles** are generated automatically after each answer. Double-click one to
 rename it — after that, auto-titling leaves it alone.
 
@@ -67,7 +83,11 @@ rename it — after that, auto-titling leaves it alone.
 | shift-click | add to selection |
 | Escape | clear selection |
 | double-click a box | edit its text |
+| ⌘0 / Ctrl+0 | reset zoom to 100% |
+| ⇧1 (or ⌘⇧1) | zoom to fit every box |
+| ⌘Z / ⌘⇧Z / Ctrl+Y | undo / redo |
 
+The chat panel can be collapsed, or dragged wider and narrower by its edge.
 Canvas and conversation autosave to localStorage and come back on reload.
 
 ## How it fits together
@@ -83,9 +103,10 @@ key stays in the server process:
 
 ```
 src/
-  canvas/      geometry (the ONLY place screen<->world math lives), Canvas, TextBox
+  canvas/      geometry (the ONLY place screen<->world math lives), Canvas,
+               TextBox, DrawingBox (Excalidraw)
   chat/        ChatPanel
-  state/       types, reducer, request assembly, persistence
+  state/       types, reducer, undo history, request assembly, persistence
   lib/         reveal pacer, markdown actions, image downscaling
   useGeneration.ts   every generation path funnels through here
 server/        config + preflight, generate, sources
@@ -103,7 +124,7 @@ Two things are load-bearing and easy to break:
 ## Checks
 
 ```bash
-npm test        # 135 unit tests
+npm test        # 237 unit tests
 npm run build
 npm run typecheck
 ```
@@ -117,14 +138,11 @@ streaming and vision were verified by driving a real browser against the real AP
 
 - **HEIC conversion is macOS-only** — it shells out to `sips`. Other platforms get
   a clear "requires macOS" message rather than a silent failure.
-- **No zoom reset.** Zoom persists across reloads, so a stray scroll can leave the
-  canvas somewhere confusing with no one-key way back.
-- **The chat panel is a fixed 360px** and can be collapsed but not resized. In a
-  narrow window it crowds the canvas out.
-- **No undo.** Deleting a box is final. In-place rewrites are protected by the
-  shadow buffer; nothing else is.
-- **localStorage caps around 8-9MB** — roughly 25-30 photos. Past that, autosave
-  fails silently.
+- **Undo covers box edits only.** Chat messages and cleared threads are not
+  undoable, and history is capped at 50 steps.
+- **localStorage caps around 8-9MB** — roughly 25-30 photos. Past that autosave
+  stops working; you get a toast rather than silent loss, but the canvas is
+  then only as durable as the tab.
 - **Chat images aren't supported** — vision works from canvas selection only.
 - Adaptive thinking means several seconds can pass before the first token. The
   pulsing indicator exists so that pause doesn't read as a hang.

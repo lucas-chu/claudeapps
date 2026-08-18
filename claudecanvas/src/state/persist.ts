@@ -1,6 +1,13 @@
 import { DEFAULT_CHAT_WIDTH, type State } from './store'
 
-export const STORAGE_KEY = 'cove-canvas:v1'
+export const STORAGE_KEY = 'claude-canvas:v1'
+
+/**
+ * The key this app wrote to when it was called Cove Canvas. `load` still falls
+ * back to it so the rename doesn't greet existing users with an empty canvas,
+ * and `save` clears it once the new key holds the same state.
+ */
+export const LEGACY_STORAGE_KEY = 'cove-canvas:v1'
 
 /**
  * Strips every transient field a reload (or an undo/redo restoring an older
@@ -36,15 +43,27 @@ export function save(state: State): boolean {
   const clean = sanitize(state)
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(clean))
-    return true
   } catch {
     return false
   }
+  // Only after the new key is durably written. Dropping the legacy copy any
+  // earlier would lose the canvas whenever that write failed, and keeping it
+  // forever would permanently spend half of localStorage's ~5MB budget on a
+  // stale duplicate. Its own failure must not turn a successful save into a
+  // reported one, hence the separate try.
+  try {
+    localStorage.removeItem(LEGACY_STORAGE_KEY)
+  } catch {
+    // Best-effort cleanup; the state itself is already saved.
+  }
+  return true
 }
 
 export function load(): State | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    // `??`, not `||`: a present-but-corrupt value under the current key should
+    // fail closed rather than silently resurrect a stale pre-rename canvas.
+    const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as State
     if (!Array.isArray(parsed.boxes)) return null
