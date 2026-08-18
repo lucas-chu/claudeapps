@@ -4,7 +4,7 @@ Three projects on one spine — the same idea handed to Claude three ways.
 
 | | Claude… | Project | |
 |---|---|---|---|
-| **Messages API** | responds | [**Claude Canvas**](./claudecanvas) | an infinite canvas you think on, with Claude |
+| **Messages API** | responds | [**Claude Canvas**](./claudecanvas) | an infinite canvas you think on, with Claude — deployable, bring your own key |
 | **Agent SDK** | investigates | [**@CheckClaude**](./checkclaude) | fact-check anything on X by mentioning an agent |
 | **Managed Agents** | persists | [**@ClawdFather**](./clawdfather) | a Slack Claude that hires Claudes |
 
@@ -24,8 +24,10 @@ others' unanswered questions and answer all of them. Paste an iPhone photo and
 it converts through macOS's own decoder, because no browser can read HEIC. Ask
 about an image or a drawing and Claude sees it.
 
-Streaming Messages API, server-side web search, and vision — with the key held
-server-side so the browser only ever talks to localhost.
+Streaming Messages API, server-side web search, and vision. It ships as a static
+site with no backend at all: each visitor pastes their own Anthropic API key,
+which goes from their browser straight to Anthropic and never touches a server
+of ours.
 
 ### [`checkclaude/`](./checkclaude) — Claude investigates
 

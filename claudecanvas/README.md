@@ -4,30 +4,46 @@ An infinite canvas of draggable, resizable boxes that Claude writes into, with a
 chat panel alongside. Both surfaces share one conversation, so what the model
 sees is exactly what you can read.
 
-Local, single-user, Mac. Built to be demoed.
+A static web app. It has no backend: the page calls the Anthropic API directly
+with **your own API key**, which you paste in on first run.
 
 ## Run it
 
 ```bash
 npm install
-cp .env.example .env      # then put a real key in it
 npm run dev
 ```
 
-Open http://localhost:5173.
+Open http://localhost:5173 and paste an Anthropic API key when asked
+([get one here](https://console.anthropic.com/settings/keys)).
 
-`npm run dev` starts both halves: a Vite dev server on 5173 and a small Node API
-server on 8787 (with `tsx watch`, so server edits reload themselves). Vite proxies
-`/api` to it.
+There is no `.env`, no server, and no build-time secret. `npm run dev` is just
+Vite.
 
-If the key is missing the server exits immediately with a readable message rather
-than starting and failing on the first prompt. On startup it prints which source
-the key came from (`.env` or the environment) — never the key itself.
+## Deploy it
 
-`CANVAS_PORT` moves the API server off 8787, and `CANVAS_BASE_URL` points it at a
-different Anthropic endpoint. That override is deliberately *not* spelled
-`ANTHROPIC_BASE_URL` — an inherited shell variable must never silently redirect
-requests.
+`npm run build` emits a `dist/` of static files. Any static host will serve it —
+`vercel.json` and `netlify.toml` are included and need no configuration, because
+there is nothing to configure: no environment variables, no functions, no
+secrets.
+
+```bash
+npm run build && npm run preview   # check the production build locally
+```
+
+## About your API key
+
+Every visitor supplies their own key and is billed for their own usage.
+
+- **The key goes to Anthropic and nowhere else.** This app has no server to send
+  it to; requests go from your browser straight to `api.anthropic.com`.
+- **You choose how long it is kept** — until you close the tab (the default), or
+  remembered on the device. "Forget key" clears both.
+- **It is checked before it is saved**, so a bad paste is caught immediately
+  instead of failing on your first prompt.
+- The trade-off of any bring-your-own-key app is that the key sits in browser
+  storage, readable by any script on the page. This page loads no third-party
+  scripts and no analytics.
 
 ## What you can do
 
@@ -51,8 +67,9 @@ that scrolls the panel back to the turn it came from.
 **Web search** runs when a question needs current information — not on every
 prompt. Answers that used it show source chips.
 
-**Images.** Paste, drag a file in, or use **Add image**. iPhone HEIC photos are
-converted automatically. Select an image box and prompt to ask about it.
+**Images.** Paste, drag a file in, or use **Add image**. Select an image box and
+prompt to ask about it. iPhone HEIC photos are not supported — no browser can
+decode them — so export as JPEG or PNG first; dropping one tells you so.
 
 **Editing.** Double-click a box to edit its markdown. Select text for a formatting
 toolbar (bold, italic, code, heading, lists, quote, link), or use ⌘B / ⌘I / ⌘K.
@@ -92,24 +109,27 @@ Canvas and conversation autosave to localStorage and come back on reload.
 
 ## How it fits together
 
-The browser never talks to the Anthropic API. It calls three local routes, and the
-key stays in the server process:
+The browser is the whole app. It talks to the Anthropic API itself, using the
+SDK's `dangerouslyAllowBrowser` mode — which is also what makes the SDK send the
+`anthropic-dangerous-direct-browser-access` header the API requires for a
+cross-origin call from a page.
 
-- `POST /api/generate` — streams a reply back as Server-Sent Events (`delta`,
-  `sources`, `error`, `done`). Declares the web-search tool; sends selected images
-  as vision content blocks.
-- `POST /api/title` — a short label for a box.
-- `POST /api/convert-image` — HEIC to JPEG, via macOS `sips`.
+- `generate()` — streams a reply, declaring the web-search tool and sending
+  selected images as vision content blocks.
+- `requestTitle()` — a short label for a box.
+- `verifyApiKey()` — one near-empty request, so a bad key is caught at entry.
 
 ```
 src/
+  api/         Anthropic calls (stream.ts), web-search source extraction
   canvas/      geometry (the ONLY place screen<->world math lives), Canvas,
                TextBox, DrawingBox (Excalidraw)
   chat/        ChatPanel
-  state/       types, reducer, undo history, request assembly, persistence
+  state/       types, reducer, undo history, request assembly, persistence,
+               apiKey (where the user's key is kept)
   lib/         reveal pacer, markdown actions, image downscaling
+  ApiKeyDialog.tsx   key entry, validation and scope
   useGeneration.ts   every generation path funnels through here
-server/        config + preflight, generate, sources
 ```
 
 Two things are load-bearing and easy to break:
@@ -124,7 +144,7 @@ Two things are load-bearing and easy to break:
 ## Checks
 
 ```bash
-npm test        # 237 unit tests
+npm test        # 257 unit tests
 npm run build
 npm run typecheck
 ```
@@ -136,8 +156,10 @@ streaming and vision were verified by driving a real browser against the real AP
 
 ## Known limitations
 
-- **HEIC conversion is macOS-only** — it shells out to `sips`. Other platforms get
-  a clear "requires macOS" message rather than a silent failure.
+- **HEIC photos aren't supported.** No browser decodes HEIC, and there is no
+  server to convert it. Dropping one says so and names the fix.
+- **The API key is in browser storage**, which is inherent to bring-your-own-key.
+  Prefer the tab-only option on a shared machine.
 - **Undo covers box edits only.** Chat messages and cleared threads are not
   undoable, and history is capped at 50 steps.
 - **localStorage caps around 8-9MB** — roughly 25-30 photos. Past that autosave
