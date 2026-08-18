@@ -1,0 +1,335 @@
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  font: 14px/1.5 ui-sans-serif, -apple-system, system-ui, sans-serif;
+  color: #1a1a1a;
+  background: #f6f5f3;
+}
+.app { display: flex; height: 100%; }
+
+.canvas {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  background:
+    radial-gradient(circle, #d8d5cf 1px, transparent 1px) 0 0 / 24px 24px;
+  touch-action: none;
+  user-select: none;
+}
+.canvas.is-dropping {
+  outline: 3px dashed #c2643c;
+  outline-offset: -10px;
+}
+
+.box {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid #d8d5cf;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .06);
+  overflow: visible;
+}
+.box.is-selected { border-color: #c2643c; box-shadow: 0 0 0 2px rgba(194, 100, 60, .25); }
+.box.is-error { border-color: #b3402f; }
+
+.box-header {
+  display: flex; align-items: center; justify-content: space-between;
+  height: 22px; padding: 0 18px; cursor: grab;
+  background: #faf9f7; border-bottom: 1px solid #eceae6;
+  font-size: 11px; color: #8a8580;
+  border-radius: 10px 10px 0 0;
+}
+.box-delete { border: 0; background: none; cursor: pointer; font-size: 15px; color: #8a8580; }
+.box-title {
+  /* Part of the drag handle now (double-click still renames), so it shares
+     box-header's grab cursor rather than hinting at click-to-edit text. */
+  flex: 1; min-width: 0; margin: 0 6px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px; color: #5c5852; cursor: grab;
+}
+.box-title.is-placeholder { color: #8a8580; font-style: italic; }
+.box-title-input {
+  flex: 1; min-width: 0; margin: 0 6px;
+  border: 0; outline: none; background: none;
+  font: inherit; font-size: 11px; color: #1a1a1a;
+}
+.box-body { position: relative; flex: 1; overflow: auto; padding: 10px 12px; }
+/* A drawing needs to fill the box edge-to-edge - Excalidraw manages its own
+   internal scroll/pan, so the body's own padding and scrollbar would just
+   clip it and double up on scrolling. */
+.box-body.box-body-drawing { padding: 0; overflow: hidden; }
+.drawing-canvas { position: absolute; inset: 0; }
+.drawing-loading {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; color: #8a8580; font-size: 12px;
+}
+.box-markdown, .turn-body { overflow-wrap: anywhere; }
+.box-markdown p:first-child, .turn-body p:first-child { margin-top: 0; }
+.box-markdown p:last-child, .turn-body p:last-child { margin-bottom: 0; }
+.box-markdown h1, .box-markdown h2, .box-markdown h3,
+.turn-body h1, .turn-body h2, .turn-body h3 {
+  margin: .6em 0 .3em; line-height: 1.25;
+}
+.box-markdown h1, .turn-body h1 { font-size: 1.25em; }
+.box-markdown h2, .turn-body h2 { font-size: 1.12em; }
+.box-markdown h3, .turn-body h3 { font-size: 1.03em; }
+.box-markdown h1:first-child, .box-markdown h2:first-child, .box-markdown h3:first-child,
+.turn-body h1:first-child, .turn-body h2:first-child, .turn-body h3:first-child { margin-top: 0; }
+.box-markdown ul, .box-markdown ol,
+.turn-body ul, .turn-body ol {
+  margin: .4em 0; padding-left: 1.4em;
+}
+.box-markdown li, .turn-body li { margin: .2em 0; }
+.box-markdown code, .turn-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .92em;
+  background: #f2f0ec; border-radius: 4px; padding: .1em .35em;
+}
+.box-markdown pre, .turn-body pre {
+  background: #f2f0ec; border-radius: 6px; padding: 8px 10px;
+  overflow-x: auto;
+}
+.box-markdown pre code, .turn-body pre code {
+  background: none; padding: 0;
+}
+.box-markdown blockquote, .turn-body blockquote {
+  margin: .4em 0; padding-left: .8em;
+  border-left: 3px solid #d8d5cf; color: #8a8580;
+}
+.box-markdown strong, .turn-body strong { font-weight: 600; }
+.box-markdown em, .turn-body em { font-style: italic; }
+.box-markdown a, .turn-body a { color: #c2643c; text-decoration: underline; }
+
+/* GFM task lists (`- [ ] thing`). Nesting is just ordinary list indentation,
+   already handled by the ul/ol padding-left rule above - a task item is a
+   normal <li> plus a checkbox, so it inherits that indentation for free at
+   every level. */
+.box-markdown li.task-list-item, .turn-body li.task-list-item {
+  list-style: none; /* the checkbox stands in for the bullet */
+}
+.box-markdown li.task-list-item input[type='checkbox'],
+.turn-body li.task-list-item input[type='checkbox'] {
+  margin: 0 .5em 0 0;
+  position: relative;
+  top: 1px; /* nudges the box onto the baseline of the first text line */
+  accent-color: #c2643c;
+  cursor: pointer;
+}
+.box-markdown li.task-list-item input[type='checkbox']:disabled,
+.turn-body li.task-list-item input[type='checkbox']:disabled {
+  cursor: default;
+}
+/* Completed items read as done - muted and struck through - but only their
+   own text: the rule is reset on any nested sublist so an unchecked child
+   under a checked parent still reads as outstanding. */
+.box-markdown li.task-list-item:has(> input:checked),
+.turn-body li.task-list-item:has(> input:checked) {
+  color: #8a8580;
+  text-decoration: line-through;
+  text-decoration-color: #d8d5cf;
+}
+.box-markdown li.task-list-item > ul, .box-markdown li.task-list-item > ol,
+.turn-body li.task-list-item > ul, .turn-body li.task-list-item > ol {
+  color: #1a1a1a;
+  text-decoration: none;
+}
+.box-editor { width: 100%; height: 100%; border: 0; resize: none; outline: none; font: inherit; }
+.box-errmsg {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; background: #fdecea; color: #8c2f22; font-size: 12px;
+}
+.box-errmsg span { flex: 1; }
+.box-retry {
+  padding: 2px 8px; font-size: 11px; cursor: pointer;
+  border: 1px solid #e0b4ac; border-radius: 999px; background: #fff; color: #8c2f22;
+}
+.box-sources {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 6px 12px; border-top: 1px solid #eceae6; font-size: 11px;
+  border-radius: 0 0 10px 10px;
+}
+.box-sources a {
+  max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 2px 6px; background: #f2f0ec; border-radius: 999px; color: #5c5852; text-decoration: none;
+}
+
+.handle { position: absolute; width: 10px; height: 10px; background: #c2643c; border-radius: 2px; }
+.handle-nw { left: -5px; top: -5px; cursor: nwse-resize; }
+.handle-n  { left: calc(50% - 5px); top: -5px; cursor: ns-resize; }
+.handle-ne { right: -5px; top: -5px; cursor: nesw-resize; }
+.handle-e  { right: -5px; top: calc(50% - 5px); cursor: ew-resize; }
+.handle-se { right: -5px; bottom: -5px; cursor: nwse-resize; }
+.handle-s  { left: calc(50% - 5px); bottom: -5px; cursor: ns-resize; }
+.handle-sw { left: -5px; bottom: -5px; cursor: nesw-resize; }
+.handle-w  { left: -5px; top: calc(50% - 5px); cursor: ew-resize; }
+
+.marquee {
+  position: absolute;
+  border: 1px solid #c2643c;
+  background: rgba(194, 100, 60, .08);
+  pointer-events: none;
+}
+
+.canvas-shell { position: relative; flex: 1; display: flex; min-width: 0; }
+
+.omnibar {
+  position: absolute;
+  left: 50%; bottom: 24px; transform: translateX(-50%);
+  display: flex; gap: 8px; align-items: center;
+  width: min(640px, calc(100% - 48px));
+  padding: 8px 8px 8px 14px;
+  background: #fff; border: 1px solid #d8d5cf; border-radius: 999px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .08);
+  z-index: 20;
+}
+.omnibar input { flex: 1; border: 0; outline: none; font: inherit; background: none; }
+.omnibar-running {
+  flex: 0 0 auto;
+  font-size: 11px; color: #8a8580;
+  background: #f6f5f3; border: 1px solid #d8d5cf; border-radius: 999px;
+  padding: 3px 9px;
+  white-space: nowrap;
+}
+.omnibar button {
+  width: 30px; height: 30px; border: 0; border-radius: 50%;
+  background: #c2643c; color: #fff; cursor: pointer;
+}
+.omnibar button:disabled { background: #ddd9d3; cursor: default; }
+
+.chat {
+  position: relative;
+  display: flex; flex-direction: column;
+  /* Actual width is set live via inline style (state.chatWidth) - this is
+     just the pre-JS/fallback size. */
+  width: 360px; flex: 0 0 360px;
+  background: #fff; border-left: 1px solid #d8d5cf;
+}
+/* Grab strip on the panel's left edge for drag-resize (GAP 2a). Straddles
+   the border between canvas and chat so it's easy to grab without needing
+   pixel-perfect precision. */
+.chat-resize-handle {
+  position: absolute;
+  left: -3px; top: 0; bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 25;
+  background: transparent;
+}
+.chat-resize-handle:hover, .chat-resize-handle.is-dragging {
+  background: rgba(194, 100, 60, .25);
+}
+.chat-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; border-bottom: 1px solid #eceae6;
+}
+.chat-head strong { flex: 1; }
+.chat-count { font-size: 11px; color: #8a8580; }
+.chat-head button { border: 0; background: none; cursor: pointer; color: #8a8580; font-size: 12px; }
+.chat-scroll { flex: 1; overflow: auto; padding: 12px; }
+.turn { margin-bottom: 14px; }
+.turn-user .turn-body {
+  background: #f2f0ec; border-radius: 10px; padding: 8px 10px;
+}
+.turn-label { font-size: 11px; color: #8a8580; margin-bottom: 3px; }
+.turn-body p:first-child { margin-top: 0; }
+.turn-body p:last-child { margin-bottom: 0; }
+.turn-error {
+  display: flex; align-items: center; gap: 8px;
+  color: #8c2f22; font-size: 12px; margin-top: 4px;
+}
+.turn-error .turn-promote { margin-top: 0; }
+.turn-promote {
+  margin-top: 6px; padding: 3px 8px; font-size: 11px;
+  border: 1px solid #d8d5cf; border-radius: 999px; background: #fff; cursor: pointer;
+}
+.turn.is-highlit { outline: 2px solid #c2643c; outline-offset: 4px; border-radius: 6px; }
+.chat-input { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #eceae6; }
+.chat-input input { flex: 1; border: 1px solid #d8d5cf; border-radius: 999px; padding: 7px 12px; font: inherit; outline: none; }
+.chat-input button { width: 30px; border: 0; border-radius: 50%; background: #c2643c; color: #fff; cursor: pointer; }
+.chat-input button:disabled { background: #ddd9d3; }
+.chat-reopen {
+  position: absolute; right: 16px; top: 16px; z-index: 30;
+  padding: 6px 12px; border: 1px solid #d8d5cf; border-radius: 999px;
+  background: #fff; cursor: pointer;
+}
+.box-provenance {
+  padding: 4px 12px; border-top: 1px solid #eceae6;
+  font-size: 11px; color: #8a8580; cursor: pointer; background: none; border-left: 0; border-right: 0; border-bottom: 0; text-align: left;
+}
+
+/* Shown while a generation is running but no token has arrived yet — adaptive
+   thinking on claude-opus-5 can take several seconds before the first token. */
+.thinking { display: flex; gap: 5px; align-items: center; padding: 2px 0; }
+.thinking span {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #c2643c; opacity: .35;
+  animation: thinking-pulse 1.2s ease-in-out infinite;
+}
+.thinking span:nth-child(2) { animation-delay: .18s; }
+.thinking span:nth-child(3) { animation-delay: .36s; }
+@keyframes thinking-pulse {
+  0%, 60%, 100% { opacity: .25; transform: translateY(0); }
+  30%           { opacity: .9;  transform: translateY(-3px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .thinking span { animation: none; opacity: .5; }
+}
+
+.canvas-toolbar {
+  position: absolute; left: 16px; top: 16px; z-index: 30;
+  display: flex; gap: 8px;
+}
+.new-box-btn, .add-image-btn, .draw-btn, .undo-btn, .redo-btn, .zoom-btn, .fit-btn {
+  padding: 6px 12px; border: 1px solid #d8d5cf; border-radius: 999px;
+  background: #fff; cursor: pointer; font: inherit; font-size: 13px;
+}
+.new-box-btn:hover, .add-image-btn:hover, .draw-btn:hover,
+.undo-btn:not(:disabled):hover, .redo-btn:not(:disabled):hover,
+.zoom-btn:hover, .fit-btn:hover { background: #faf9f7; }
+.undo-btn:disabled, .redo-btn:disabled { opacity: .4; cursor: default; }
+/* Fixed-width so the pill doesn't visibly resize/jitter as the percentage's
+   digit count changes while zooming (e.g. 9% -> 100%). */
+.zoom-btn { min-width: 52px; text-align: center; }
+
+.toast {
+  position: absolute;
+  left: 50%; bottom: 84px; transform: translateX(-50%);
+  z-index: 50;
+  padding: 8px 16px;
+  background: #f6f5f3;
+  border: 1px solid #d8d5cf;
+  border-left: 3px solid #c2643c;
+  border-radius: 999px;
+  color: #8a8580;
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .08);
+  pointer-events: none;
+  animation: toast-in .15s ease-out;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 4px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.box-blocks { display: flex; flex-direction: column; gap: 6px; }
+
+.md-toolbar {
+  position: absolute;
+  display: flex; gap: 2px;
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .2);
+  z-index: 40;
+}
+.md-toolbar-btn {
+  min-width: 26px; height: 26px;
+  border: 0; border-radius: 5px;
+  background: transparent; color: #f4f2ef;
+  font: inherit; font-size: 12px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.md-toolbar-btn:hover { background: rgba(255, 255, 255, .16); }
