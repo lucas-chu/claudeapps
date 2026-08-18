@@ -1,0 +1,38 @@
+name: claudecanvas
+
+on:
+  # `pull_request` already covers branches with an open PR, so pushes only need
+  # to fire on main - otherwise every push to a PR branch runs twice.
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: claudecanvas-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: claudecanvas
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: claudecanvas/package-lock.json
+      # `npm ci` would rewrite the lockfile's optional platform deps on Linux;
+      # the lockfile is authored on macOS, so install without touching it.
+      - name: Install
+        run: npm install --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      # The browser half is unit-tested only, so a passing build is the one
+      # signal that the app still compiles end to end.
+      - name: Build
+        run: npm run build

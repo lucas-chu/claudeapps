@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { reducer, initialState, MAX_TURNS } from './store'
 import { blocksToText, appendToBlocks } from './types'
-import type { Box } from './types'
+import type { Block, Box } from './types'
 
 const box = (id: string, over: Partial<Box> = {}): Box => ({
   id, x: 0, y: 0, w: 320, h: 220,
@@ -277,19 +277,19 @@ describe('blocksToText', () => {
 
 describe('appendToBlocks', () => {
   it('appends to a trailing text block', () => {
-    const blocks = [{ type: 'text', text: 'hello' }]
+    const blocks: Block[] = [{ type: 'text', text: 'hello' }]
     const result = appendToBlocks(blocks, ' world')
     expect(result).toEqual([{ type: 'text', text: 'hello world' }])
   })
 
   it('creates a text block in an empty list', () => {
-    const blocks: typeof blocks = []
+    const blocks: Block[] = []
     const result = appendToBlocks(blocks, 'hello')
     expect(result).toEqual([{ type: 'text', text: 'hello' }])
   })
 
   it('pushes a new text block when trailing block is not text', () => {
-    const blocks = [{ type: 'image', mime: 'image/png', data: 'base64' }]
+    const blocks: Block[] = [{ type: 'image', mime: 'image/png', data: 'base64' }]
     const result = appendToBlocks(blocks, 'text')
     expect(result).toEqual([
       { type: 'image', mime: 'image/png', data: 'base64' },
@@ -298,7 +298,7 @@ describe('appendToBlocks', () => {
   })
 
   it('does not mutate the input array', () => {
-    const blocks = [{ type: 'text', text: 'hello' }]
+    const blocks: Block[] = [{ type: 'text', text: 'hello' }]
     const blocksBefore = [...blocks]
     appendToBlocks(blocks, ' world')
     expect(blocks).toEqual(blocksBefore)
