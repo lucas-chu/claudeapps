@@ -34,6 +34,7 @@ class Teammate:
     bot_user_id: str
     soul_path: str
     emoji: str = "robot_face"
+    template: str | None = None  # base personality it was hired from
 
     @property
     def mention(self) -> str:

@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import re
 
-from . import config, managed_agent, registry, slack_client
+from . import config, managed_agent, registry, slack_client, templates
 from .prompts import render_soul, system_from_soul
 
 log = logging.getLogger(__name__)
@@ -21,19 +21,72 @@ def _slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "teammate"
 
 
+def _compose(
+    template_slug: str | None,
+    name: str | None,
+    role: str | None,
+    instructions: str | None,
+    emoji: str | None,
+) -> tuple[str, str, str, str, str | None]:
+    """Resolve a hire request into (name, role, emoji, soul_body, template_slug).
+
+    A template supplies defaults for everything; anything passed explicitly wins.
+    `instructions` given alongside a template is appended rather than replacing
+    it, so "a CFO, but we're pre-revenue" keeps the CFO.
+    """
+    if not template_slug:
+        if not (instructions or "").strip():
+            raise ValueError(
+                "Give either a `template` slug or `instructions`. Available "
+                f"templates: {', '.join(templates.slugs())}."
+            )
+        if not (name or "").strip():
+            raise ValueError("`name` is required when no template is given.")
+        return (
+            name.strip(),
+            (role or "Teammate").strip(),
+            # slack_client re-wraps this in colons, so ":mag:" must not survive.
+            (emoji or "robot_face").strip(":"),
+            instructions,
+            None,
+        )
+
+    tpl = templates.get(template_slug)
+    if tpl is None:
+        raise ValueError(
+            f"No template {template_slug!r}. Available: {', '.join(templates.slugs())}."
+        )
+
+    body = tpl.soul
+    if (instructions or "").strip():
+        body = f"{body}\n\n## For this hire\n\n{instructions.strip()}"
+
+    return (
+        (name or tpl.name).strip(),
+        (role or tpl.role).strip(),
+        (emoji or tpl.emoji).strip(":"),
+        body,
+        tpl.slug,
+    )
+
+
 def hire(
     *,
-    name: str,
-    role: str,
-    instructions: str,
     home_channel: str,
-    emoji: str = "robot_face",
+    template: str | None = None,
+    name: str | None = None,
+    role: str | None = None,
+    instructions: str | None = None,
+    emoji: str | None = None,
 ) -> registry.Teammate:
     """Provision one teammate end to end."""
+    name, role, emoji, soul_body, template_slug = _compose(
+        template, name, role, instructions, emoji
+    )
     channel_id, channel_name = slack_client.resolve_channel(home_channel)
     slot = registry.claim_slot(name)
 
-    soul = render_soul(name, role, channel_name, instructions)
+    soul = render_soul(name, role, channel_name, soul_body)
     config.SOULS_DIR.mkdir(parents=True, exist_ok=True)
     soul_path = config.SOULS_DIR / f"{_slug(name)}.md"
     soul_path.write_text(soul)
@@ -60,7 +113,8 @@ def hire(
         slot_index=slot.index,
         bot_user_id=slot.bot_user_id,
         soul_path=str(soul_path.relative_to(config.ROOT)),
-        emoji=emoji or "robot_face",
+        emoji=emoji,
+        template=template_slug,
     )
     registry.save_teammate(teammate)
     return teammate
@@ -70,17 +124,19 @@ def handle_tool(name: str, args: dict) -> str:
     """Answer ClawdFather's custom tool calls. Raises on failure so the agent sees it."""
     if name == "create_teammate":
         teammate = hire(
-            name=args["name"].strip(),
-            role=args["role"].strip(),
-            instructions=args["instructions"],
             home_channel=args["home_channel"],
-            emoji=(args.get("emoji") or "robot_face").strip(":"),
+            template=args.get("template"),
+            name=args.get("name"),
+            role=args.get("role"),
+            instructions=args.get("instructions"),
+            emoji=args.get("emoji"),
         )
+        provenance = f" from the {teammate.template} template" if teammate.template else ""
         return (
             f"Hired {teammate.name} ({teammate.role}).\n"
             f"Slack identity: {teammate.mention} in #{teammate.home_channel_name}.\n"
             f"Managed Agent: {teammate.agent_id} (version {teammate.agent_version}).\n"
-            f"Soul written to {teammate.soul_path}.\n"
+            f"Soul written to {teammate.soul_path}{provenance}.\n"
             f"It listens ambiently in #{teammate.home_channel_name} and responds "
             f"to @{teammate.name} anywhere else."
         )
@@ -90,7 +146,8 @@ def handle_tool(name: str, args: dict) -> str:
         if not teammates:
             return "No teammates hired yet."
         return "\n".join(
-            f"- {t.name} ({t.role}) — lives in #{t.home_channel_name}, agent {t.agent_id}"
+            f"- {t.name} ({t.role}) — lives in #{t.home_channel_name}, "
+            f"agent {t.agent_id}" + (f", from template {t.template}" if t.template else "")
             for t in teammates
         )
 

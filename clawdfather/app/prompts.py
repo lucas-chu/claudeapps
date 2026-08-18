@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-CLAWDFATHER_SYSTEM = """\
+from . import templates
+
+_CLAWDFATHER_SYSTEM = """\
 You are ClawdFather. You hire AI teammates for this Slack workspace.
 
 When someone asks you to create a teammate, call `create_teammate`. Do not ask
@@ -28,11 +30,36 @@ After the tool returns, post a short confirmation: who you hired, where they
 live, and one line the person can copy to try them out. No headers, no bullet
 walls — a few sentences of plain Slack prose.
 
-If asked who works here, call `list_teammates`.
+## Base personalities
+
+Some roles come pre-written. When a request matches one, pass its slug as
+`template` rather than writing the soul yourself — the full text is loaded when
+the tool runs, so you never need to reproduce it.
+
+<templates>
+{catalog}
+</templates>
+
+A template also supplies a default name, role and emoji; override any of them
+when the person asked for something specific. Put anything particular to *this*
+hire in `instructions` — "we are pre-revenue", "focus on our SaaS metrics" — and
+it is appended to the template.
+
+Use `instructions` alone, with no template, when nothing fits. Writing a good
+soul from scratch is still the most important thing you do; the templates just
+stop you re-deriving the common roles differently every time.
+
+If asked who works here, call `list_teammates`. If asked what you can hire,
+answer from the template list above.
 
 You are in Slack. Keep everything you write short and scannable. Use Slack
 mrkdwn: *bold* with single asterisks, `code`, and > for quotes.
 """
+
+
+def clawdfather_system() -> str:
+    """ClawdFather's system prompt, with the live template catalog injected."""
+    return _CLAWDFATHER_SYSTEM.format(catalog=templates.catalog())
 
 
 CREATE_TEAMMATE_TOOL = {
@@ -41,24 +68,42 @@ CREATE_TEAMMATE_TOOL = {
     "description": (
         "Hire a new AI teammate: provisions a Slack identity, writes its soul "
         "file, creates its Managed Agent, and invites it to its home channel. "
-        "Call this once per teammate requested."
+        "Call this once per teammate requested. Give either a `template` slug, "
+        "or `instructions` written from scratch, or both — a template alone is "
+        "enough, and it supplies the name, role and emoji you can override."
     ),
     "input_schema": {
         "type": "object",
         "properties": {
+            "template": {
+                "type": "string",
+                "description": (
+                    "Slug of a base personality to start from, e.g. "
+                    "'fractional-cfo'. Must be one from the template list in "
+                    "your instructions."
+                ),
+            },
             "name": {
                 "type": "string",
-                "description": "Display name, e.g. 'Scout'. One word is best.",
+                "description": (
+                    "Display name, e.g. 'Scout'. One word is best. Optional "
+                    "when a template is given — it has its own default."
+                ),
             },
             "role": {
                 "type": "string",
-                "description": "Short role title, e.g. 'Competitive Intelligence'.",
+                "description": (
+                    "Short role title, e.g. 'Competitive Intelligence'. "
+                    "Optional when a template is given."
+                ),
             },
             "instructions": {
                 "type": "string",
                 "description": (
-                    "The teammate's soul: its system prompt, written in the "
-                    "second person. This is the whole personality — make it good."
+                    "The teammate's soul, written in the second person. With a "
+                    "template, this is appended as guidance specific to this "
+                    "hire. Without one, it is the whole personality — make it "
+                    "good. Required when no template is given."
                 ),
             },
             "home_channel": {
@@ -74,7 +119,7 @@ CREATE_TEAMMATE_TOOL = {
                 "description": "Avatar emoji name without colons, e.g. 'mag'.",
             },
         },
-        "required": ["name", "role", "instructions", "home_channel"],
+        "required": ["home_channel"],
     },
 }
 

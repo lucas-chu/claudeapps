@@ -109,6 +109,10 @@ agent and environment IDs in `.env` still resolve.
              Terse, opinionated, always names the tradeoff.
 ```
 
+Or hire from a base personality — `@ClawdFather we need a fractional CFO in
+#strategy` — which skips writing a soul and starts from `templates/fractional-cfo.md`.
+
+
 Then in `#strategy`:
 
 ```
@@ -132,6 +136,37 @@ Each teammate's charter is written to `souls/<name>.md` and becomes that agent's
 it, and re-apply by re-hiring the same name, which calls `agents.update()` and
 mints a new agent version rather than creating a second teammate.
 
+## Base personalities
+
+The common roles are pre-written, in [`templates/`](./templates). Each is a
+markdown file: a little frontmatter (default name, role, emoji, one-line
+summary) and a soul body.
+
+```
+chief-of-staff    Atlas     decisions, owners and dates out of sprawling threads
+competitive-intel Scout     primary sources, dated claims, and what to do about them
+data-analyst      Delta     metric answers with the caveats attached
+fractional-cfo    Ledger    runway, burn, pricing, unit economics
+pm                Compass   the user problem before the solution
+recruiter         Sourcer   scorecards and outreach people answer
+staff-engineer    Builder   terse technical judgement, always names the tradeoff
+support-triage    Frontline reproduce, scope, route
+```
+
+ClawdFather only ever sees the one-line summaries — it passes a slug and the
+full soul is loaded handler-side, so adding a ninth template costs one line of
+its context, not a page. Anything specific to a hire goes in `instructions` and
+is appended under `## For this hire`:
+
+```
+@ClawdFather hire a fractional CFO for #strategy. We're pre-revenue with
+             18 months of runway — call him Ledger.
+```
+
+Explicit `name`, `role` and `emoji` override the template's defaults, and a hire
+with no template at all still works: ClawdFather writes the soul from scratch.
+Add a template by dropping a file in `templates/` — nothing else to register.
+
 ## Files
 
 ```
@@ -141,12 +176,14 @@ app/
   registry.py       JSON persistence: teammates, thread→session+owner, slots
   managed_agent.py  Anthropic integration: create agents, run a session turn
   clawdfather.py    the create_teammate / list_teammates tool handlers
+  templates.py      loads templates/*.md, builds ClawdFather's catalog
   router.py         who owns this message (pure logic, no I/O)
   slack_client.py   Slack Web API helpers
   slack.py          Socket Mode listener — the runtime entrypoint
 scripts/setup.py    ONE-TIME: environment + ClawdFather agent
 scripts/doctor.py   preflight: tokens, scopes, channels, agent IDs
 tests/              pytest suite (no network, no credentials)
+templates/          base personalities: frontmatter + soul body
 souls/              generated charters, checked in
 data/registry.json  teammates + thread→session map (gitignored)
 ```
@@ -157,11 +194,11 @@ data/registry.json  teammates + thread→session map (gitignored)
 pip install pytest ruff && pytest tests -q
 ```
 
-50 tests, no network and no credentials: the routing table, the loop guard and
+65 tests, no network and no credentials: the routing table, the loop guard and
 noise filter, thread ownership and follow-up routing, session reuse and
-handover, the slot pool, and registry persistence including legacy-format and
-corrupt-file recovery. CI runs these plus `ruff` and an import check on every
-PR.
+handover, the slot pool, registry persistence including legacy-format and
+corrupt-file recovery, and template loading plus how a hire request resolves
+against one. CI runs these plus `ruff` and an import check on every PR.
 
 ## Known limits
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 import sys
 
 from app import config, managed_agent
-from app.prompts import CLAWDFATHER_SYSTEM, CREATE_TEAMMATE_TOOL, LIST_TEAMMATES_TOOL
+from app.prompts import CREATE_TEAMMATE_TOOL, LIST_TEAMMATES_TOOL, clawdfather_system
 
 
 def main() -> int:
@@ -29,12 +29,14 @@ def main() -> int:
 
     if config.CLAWDFATHER_AGENT_ID:
         print(f"ClawdFather already exists ({config.CLAWDFATHER_AGENT_ID}); updating it.")
-        version = managed_agent.update_agent_system(config.CLAWDFATHER_AGENT_ID, CLAWDFATHER_SYSTEM)
+        version = managed_agent.update_agent_system(
+            config.CLAWDFATHER_AGENT_ID, clawdfather_system()
+        )
         agent_id = config.CLAWDFATHER_AGENT_ID
     else:
         agent_id, version = managed_agent.create_agent(
             name="ClawdFather",
-            system=CLAWDFATHER_SYSTEM,
+            system=clawdfather_system(),
             tools=[
                 {"type": "agent_toolset_20260401"},
                 CREATE_TEAMMATE_TOOL,
