@@ -21,9 +21,6 @@ applies to all three.
 
 # Claude Canvas — `claudecanvas/`
 
-Still named "Cove Canvas" inside its own README and `package.json` — the
-directory was renamed on the way into this repo, the project wasn't.
-
 ## Commands
 
 ```bash
@@ -82,8 +79,15 @@ Each has tests.
   "requires macOS" message rather than a silent failure.
 - `MAX_TURNS = 6` — history caps at the last six turns. Full box contents come
   from selection instead, so history stays cheap.
-- localStorage caps around 8–9MB (~25–30 photos); past that autosave fails
-  silently.
+- localStorage caps around 8–9MB (~25–30 photos). Past that `save()` returns
+  false and `App.tsx` raises a toast — don't let a refactor drop that return
+  value on the floor and make the failure silent again.
+- The project was called **Cove Canvas** until it was renamed. Two compatibility
+  shims exist because of it, and both have tests: `load()` falls back to the
+  `cove-canvas:v1` localStorage key (and `save()` clears it only once the new
+  key is written), and `loadConfig` still accepts `COVE_BASE_URL`/`COVE_PORT`
+  alongside `CANVAS_*`. The archived docs under `docs/superpowers/` keep the
+  old names on purpose.
 - The lockfile is authored on macOS. `npm ci` on Linux rewrites its optional
   platform deps, so CI uses `npm install` and leaves the lockfile alone.
 

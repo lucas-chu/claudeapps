@@ -21,14 +21,14 @@ function readDotEnv(): Record<string, string> {
 let config
 try {
   // The project's .env must win over an inherited shell variable — the same
-  // silent-override hazard COVE_BASE_URL is deliberately guarded against
+  // silent-override hazard CANVAS_BASE_URL is deliberately guarded against
   // above. A stale exported ANTHROPIC_API_KEY would otherwise beat .env and
   // produce a confusing 401 while .env looks correct.
   const dotEnv = readDotEnv()
   config = loadConfig({ ...process.env, ...dotEnv })
   console.log(`  key source: ${dotEnv.ANTHROPIC_API_KEY ? '.env' : 'environment'}`)
 } catch (err) {
-  console.error(`\n  Cove Canvas cannot start.\n\n  ${(err as Error).message}\n`)
+  console.error(`\n  Claude Canvas cannot start.\n\n  ${(err as Error).message}\n`)
   process.exit(1)
 }
 
@@ -55,5 +55,5 @@ const server = createServer(async (req, res) => {
 })
 
 server.listen(config.port, () => {
-  console.log(`  cove-canvas server ready on http://localhost:${config.port}`)
+  console.log(`  claude-canvas server ready on http://localhost:${config.port}`)
 })

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { save, load, STORAGE_KEY } from './persist'
+import { save, load, STORAGE_KEY, LEGACY_STORAGE_KEY } from './persist'
 import { initialState } from './store'
 
 const mem: Record<string, string> = {}
@@ -10,7 +10,7 @@ vi.stubGlobal('localStorage', {
 })
 
 describe('persistence', () => {
-  beforeEach(() => { delete mem[STORAGE_KEY] })
+  beforeEach(() => { delete mem[STORAGE_KEY]; delete mem[LEGACY_STORAGE_KEY] })
 
   it('returns null when nothing is stored', () => {
     expect(load()).toBeNull()
@@ -71,6 +71,50 @@ describe('persistence', () => {
 
   it('save() returns true on success', () => {
     expect(save(initialState)).toBe(true)
+  })
+
+  it('reads a canvas written under the pre-rename key', () => {
+    const s = {
+      ...initialState,
+      boxes: [{
+        id: 'a', x: 1, y: 2, w: 320, h: 220,
+        blocks: [{ type: 'text' as const, text: 'from cove canvas' }],
+        render: 'markdown' as const, status: 'idle' as const,
+      }],
+    }
+    mem[LEGACY_STORAGE_KEY] = JSON.stringify(s)
+    expect(load()!.boxes[0].blocks).toEqual(s.boxes[0].blocks)
+  })
+
+  it('prefers the current key over a stale pre-rename copy', () => {
+    mem[LEGACY_STORAGE_KEY] = JSON.stringify({ ...initialState, boxes: [{
+      id: 'old', x: 0, y: 0, w: 1, h: 1,
+      blocks: [{ type: 'text' as const, text: 'stale' }],
+      render: 'markdown' as const, status: 'idle' as const,
+    }] })
+    save({ ...initialState, boxes: [] })
+    expect(load()!.boxes).toEqual([])
+  })
+
+  it('drops the pre-rename copy once the current key is written', () => {
+    mem[LEGACY_STORAGE_KEY] = JSON.stringify(initialState)
+    save(initialState)
+    expect(mem[LEGACY_STORAGE_KEY]).toBeUndefined()
+    expect(mem[STORAGE_KEY]).toBeDefined()
+  })
+
+  it('keeps the pre-rename copy when the save fails, so nothing is lost', () => {
+    mem[LEGACY_STORAGE_KEY] = JSON.stringify(initialState)
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new DOMException('quota exceeded', 'QuotaExceededError')
+    })
+    try {
+      expect(save(initialState)).toBe(false)
+    } finally {
+      spy.mockRestore()
+    }
+    expect(mem[LEGACY_STORAGE_KEY]).toBeDefined()
+    expect(load()).not.toBeNull()
   })
 
   it('save() returns false instead of throwing when storage is full', () => {

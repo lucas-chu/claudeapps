@@ -1,4 +1,4 @@
-# Cove Canvas
+# Claude Canvas
 
 An infinite canvas of draggable, resizable boxes that Claude writes into, with a
 chat panel alongside. Both surfaces share one conversation, so what the model
@@ -23,6 +23,11 @@ server on 8787 (with `tsx watch`, so server edits reload themselves). Vite proxi
 If the key is missing the server exits immediately with a readable message rather
 than starting and failing on the first prompt. On startup it prints which source
 the key came from (`.env` or the environment) — never the key itself.
+
+`CANVAS_PORT` moves the API server off 8787, and `CANVAS_BASE_URL` points it at a
+different Anthropic endpoint. That override is deliberately *not* spelled
+`ANTHROPIC_BASE_URL` — an inherited shell variable must never silently redirect
+requests.
 
 ## What you can do
 
@@ -135,8 +140,9 @@ streaming and vision were verified by driving a real browser against the real AP
   a clear "requires macOS" message rather than a silent failure.
 - **Undo covers box edits only.** Chat messages and cleared threads are not
   undoable, and history is capped at 50 steps.
-- **localStorage caps around 8-9MB** — roughly 25-30 photos. Past that, autosave
-  fails silently.
+- **localStorage caps around 8-9MB** — roughly 25-30 photos. Past that autosave
+  stops working; you get a toast rather than silent loss, but the canvas is
+  then only as durable as the tab.
 - **Chat images aren't supported** — vision works from canvas selection only.
 - Adaptive thinking means several seconds can pass before the first token. The
   pulsing indicator exists so that pause doesn't read as a hang.
