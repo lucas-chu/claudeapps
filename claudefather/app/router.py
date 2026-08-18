@@ -1,7 +1,7 @@
 """Decide which agent — if any — owns an incoming Slack message.
 
     from a bot?                    -> drop (loop guard)
-    mentions @ClaudeFather?           -> ClaudeFather
+    mentions @ClaudeFather?        -> ClaudeFather
     mentions @<teammate>?          -> that teammate, always respond
     in a teammate's home channel?  -> ambient candidate, gate decides
     otherwise                      -> drop
