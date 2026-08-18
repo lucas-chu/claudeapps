@@ -1,12 +1,16 @@
-"""Thin X (Twitter) API v2 client: listen for mentions, read threads, post replies.
+"""Thin X (Twitter) API v2 client: listen for mentions and DMs, read threads, reply.
 
-Reads use the app-only bearer token. Writes use OAuth 1.0a user context.
+Reads use the app-only bearer token. Writes use OAuth 1.0a user context. DMs are
+user-context in both directions - there is no app-only view of someone's inbox.
 
-Two ingest paths:
+Two ingest paths for public mentions:
   * ``poll``   - GET /2/users/:id/mentions on an interval. Works on every access
                  tier, including pay-per-use. This is the default.
   * ``stream`` - GET /2/tweets/search/stream with a `@handle` rule. Lower latency
                  (single-digit seconds) but requires Pro or Enterprise access.
+
+DMs are polled from GET /2/dm_events. That endpoint has no ``since_id``, so the
+cursor is applied client-side against the snowflake ids it returns.
 """
 
 from __future__ import annotations
@@ -32,6 +36,9 @@ TWEET_FIELDS = "created_at,author_id,conversation_id,referenced_tweets,entities,
 USER_FIELDS = "username,name,verified,description"
 EXPANSIONS = "author_id,referenced_tweets.id,referenced_tweets.id.author_id"
 
+DM_EVENT_FIELDS = "id,text,event_type,created_at,sender_id,dm_conversation_id,referenced_tweets"
+DM_EXPANSIONS = "sender_id"
+
 
 @dataclass
 class Post:
@@ -51,6 +58,24 @@ class Post:
     def url(self) -> str:
         handle = self.author_handle or "i"
         return f"https://x.com/{handle}/status/{self.id}"
+
+
+@dataclass
+class DirectMessage:
+    """One incoming DM. The private twin of ``Post``.
+
+    ``referenced_post_ids`` are posts shared into the conversation - the usual way
+    someone asks about a specific post privately rather than by pasting a link.
+    """
+
+    id: str
+    text: str
+    sender_id: str
+    conversation_id: str
+    sender_handle: str = ""
+    sender_name: str = ""
+    created_at: str = ""
+    referenced_post_ids: list[str] = field(default_factory=list)
 
 
 class RateLimited(Exception):
@@ -108,6 +133,23 @@ class XClient:
     @staticmethod
     def _index_users(includes: dict) -> dict[str, dict]:
         return {u["id"]: u for u in includes.get("users", [])}
+
+    @staticmethod
+    def _to_dm(raw: dict, users: dict[str, dict]) -> DirectMessage:
+        sender_id = raw.get("sender_id", "")
+        sender = users.get(sender_id, {})
+        return DirectMessage(
+            id=raw["id"],
+            text=raw.get("text", ""),
+            sender_id=sender_id,
+            conversation_id=raw.get("dm_conversation_id", ""),
+            sender_handle=sender.get("username", ""),
+            sender_name=sender.get("name", ""),
+            created_at=raw.get("created_at", ""),
+            referenced_post_ids=[
+                ref["id"] for ref in raw.get("referenced_tweets") or [] if ref.get("id")
+            ],
+        )
 
     @staticmethod
     def _to_post(raw: dict, users: dict[str, dict]) -> Post:
@@ -191,6 +233,106 @@ class XClient:
         new_id = data["data"]["id"]
         log.info("Replied to %s with %s", post_id, new_id)
         return new_id
+
+    async def reply_thread(self, post_id: str, posts: list[str]) -> list[str]:
+        """Post ``posts`` as a chain, each one replying to the previous.
+
+        Returns the ids that were actually created. A failure partway through
+        leaves a shorter thread rather than none: the lead post already carries
+        the answer, so what is lost is elaboration, not the verdict.
+        """
+        ids: list[str] = []
+        target = post_id
+        for index, text in enumerate(posts):
+            try:
+                new_id = await self.reply(target, text)
+            except requests.RequestException as exc:
+                log.error("Thread stopped at post %d/%d: %s", index + 1, len(posts), exc)
+                break
+            if new_id is None:
+                continue  # dry run: nothing to chain onto, but log every post
+            ids.append(new_id)
+            target = new_id
+        return ids
+
+    # -- DMs ----------------------------------------------------------------
+
+    async def send_dm(self, conversation_id: str, text: str) -> str | None:
+        """Reply inside an existing DM conversation. Returns the dm event id."""
+        if self.cfg.dry_run:
+            log.info("[dry-run] would DM conversation %s:\n%s", conversation_id, text)
+            return None
+        data = await asyncio.to_thread(
+            self._post, f"/dm_conversations/{conversation_id}/messages", {"text": text}
+        )
+        event_id = (data.get("data") or {}).get("dm_event_id")
+        log.info("Sent DM in conversation %s (%s)", conversation_id, event_id)
+        return event_id
+
+    async def dm_user(self, user_id: str, text: str) -> str | None:
+        """Open (or reuse) a DM with ``user_id``. ``None`` means not delivered.
+
+        Being unable to DM someone is the normal case, not an error: accounts that
+        don't accept DMs from strangers return 403. Callers use the return value to
+        decide whether they may *say* a DM was sent.
+        """
+        if self.cfg.dry_run:
+            log.info("[dry-run] would DM user %s:\n%s", user_id, text)
+            return None
+        try:
+            data = await asyncio.to_thread(
+                self._post, f"/dm_conversations/with/{user_id}/messages", {"text": text}
+            )
+        except requests.RequestException as exc:
+            log.info("Could not DM %s (%s); staying with the public reply only", user_id, exc)
+            return None
+        return (data.get("data") or {}).get("dm_event_id")
+
+    async def listen_for_dms(self, since_id: str | None = None) -> AsyncIterator[DirectMessage]:
+        """Yield incoming DMs, oldest first, forever.
+
+        The bot's own messages are filtered out here rather than downstream: every
+        reply it sends lands in the same event feed, and answering those would be
+        an infinite loop with a bill attached.
+        """
+        me = await self.me_id()
+        cursor = since_id
+        while True:
+            params: dict[str, Any] = {
+                "max_results": 25,
+                "event_types": "MessageCreate",
+                "dm_event.fields": DM_EVENT_FIELDS,
+                "user.fields": USER_FIELDS,
+                "expansions": DM_EXPANSIONS,
+            }
+            try:
+                data = await asyncio.to_thread(
+                    self._get, "/dm_events", params, user_context=True
+                )
+            except RateLimited as exc:
+                wait = max(5.0, (exc.reset_epoch or 0) - time.time()) if exc.reset_epoch else 60.0
+                log.warning("Rate limited on DMs; sleeping %.0fs", wait)
+                await asyncio.sleep(wait)
+                continue
+            except requests.RequestException as exc:
+                log.warning("DM poll failed (%s); retrying", exc)
+                await asyncio.sleep(self.cfg.dm_poll_seconds)
+                continue
+
+            users = self._index_users(data.get("includes", {}))
+            # Newest-first from the API, and no since_id parameter to lean on, so
+            # the cursor is enforced here against the ids themselves.
+            for raw in reversed(data.get("data", []) or []):
+                if cursor and int(raw["id"]) <= int(cursor):
+                    continue
+                cursor = raw["id"]
+                if raw.get("sender_id") == me:
+                    continue
+                yield self._to_dm(raw, users)
+
+            await asyncio.sleep(self.cfg.dm_poll_seconds)
+
+    # -- Ingest: mentions ---------------------------------------------------
 
     async def listen_for_mentions(self, since_id: str | None = None) -> AsyncIterator[Post]:
         """Yield posts that mention the bot, oldest first, forever."""
