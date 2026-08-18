@@ -80,3 +80,58 @@ export function zoomAt(vp: Viewport, screenPoint: Point, factor: number): Viewpo
     y: anchor.y - screenPoint.y / zoom,
   }
 }
+
+/** 100% zoom, world origin at the screen's top-left corner. Used both as the
+ * explicit "reset view" target and as fitViewport's fallback when there's
+ * nothing to fit - a fresh object every call, since callers may hold onto it
+ * as part of a Viewport they later mutate-by-replacement. */
+export function resetViewport(): Viewport {
+  return { x: 0, y: 0, zoom: 1 }
+}
+
+/** Comfortable default margin (screen px) around a fitted bounding box. */
+export const FIT_MARGIN = 40
+
+export type FitViewportOpts = { margin?: number }
+
+/**
+ * Computes the viewport that frames every box's combined bounding rect,
+ * centred in a viewport of `viewportSize` with a comfortable margin around
+ * the edges. Clamped to MIN_ZOOM/MAX_ZOOM, and additionally never zooms in
+ * past 1 (100%) - filling the screen with one tiny box is disorienting, so a
+ * small canvas is simply centred at 100% rather than magnified. With no
+ * boxes, behaves exactly like `resetViewport()`.
+ */
+export function fitViewport(
+  boxes: Rect[],
+  viewportSize: Size,
+  opts: FitViewportOpts = {},
+): Viewport {
+  if (boxes.length === 0) return resetViewport()
+
+  const margin = opts.margin ?? FIT_MARGIN
+
+  const minX = Math.min(...boxes.map((b) => b.x))
+  const minY = Math.min(...boxes.map((b) => b.y))
+  const maxX = Math.max(...boxes.map((b) => b.x + b.w))
+  const maxY = Math.max(...boxes.map((b) => b.y + b.h))
+  // Guard against a degenerate (zero-area) bounding box turning into an
+  // infinite zoom below.
+  const width = Math.max(maxX - minX, 1)
+  const height = Math.max(maxY - minY, 1)
+
+  const availW = Math.max(viewportSize.w - margin * 2, 1)
+  const availH = Math.max(viewportSize.h - margin * 2, 1)
+
+  const rawZoom = Math.min(availW / width, availH / height)
+  const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.min(rawZoom, 1)))
+
+  const centerX = (minX + maxX) / 2
+  const centerY = (minY + maxY) / 2
+
+  return {
+    zoom,
+    x: centerX - viewportSize.w / 2 / zoom,
+    y: centerY - viewportSize.h / 2 / zoom,
+  }
+}

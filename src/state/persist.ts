@@ -1,4 +1,4 @@
-import type { State } from './store'
+import { DEFAULT_CHAT_WIDTH, type State } from './store'
 
 export const STORAGE_KEY = 'cove-canvas:v1'
 
@@ -48,7 +48,9 @@ export function load(): State | null {
     if (!raw) return null
     const parsed = JSON.parse(raw) as State
     if (!Array.isArray(parsed.boxes)) return null
-    return { ...parsed, selection: [], shadow: {} }
+    // A save from before the chat panel became resizable has no chatWidth at
+    // all - default it rather than resurrecting `undefined` into state.
+    return { ...parsed, selection: [], shadow: {}, chatWidth: parsed.chatWidth ?? DEFAULT_CHAT_WIDTH }
   } catch {
     return null
   }

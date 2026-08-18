@@ -199,9 +199,27 @@ body {
 .omnibar button:disabled { background: #ddd9d3; cursor: default; }
 
 .chat {
+  position: relative;
   display: flex; flex-direction: column;
+  /* Actual width is set live via inline style (state.chatWidth) - this is
+     just the pre-JS/fallback size. */
   width: 360px; flex: 0 0 360px;
   background: #fff; border-left: 1px solid #d8d5cf;
+}
+/* Grab strip on the panel's left edge for drag-resize (GAP 2a). Straddles
+   the border between canvas and chat so it's easy to grab without needing
+   pixel-perfect precision. */
+.chat-resize-handle {
+  position: absolute;
+  left: -3px; top: 0; bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 25;
+  background: transparent;
+}
+.chat-resize-handle:hover, .chat-resize-handle.is-dragging {
+  background: rgba(194, 100, 60, .25);
 }
 .chat-head {
   display: flex; align-items: center; gap: 8px;
@@ -264,13 +282,17 @@ body {
   position: absolute; left: 16px; top: 16px; z-index: 30;
   display: flex; gap: 8px;
 }
-.new-box-btn, .add-image-btn, .draw-btn, .undo-btn, .redo-btn {
+.new-box-btn, .add-image-btn, .draw-btn, .undo-btn, .redo-btn, .zoom-btn, .fit-btn {
   padding: 6px 12px; border: 1px solid #d8d5cf; border-radius: 999px;
   background: #fff; cursor: pointer; font: inherit; font-size: 13px;
 }
 .new-box-btn:hover, .add-image-btn:hover, .draw-btn:hover,
-.undo-btn:not(:disabled):hover, .redo-btn:not(:disabled):hover { background: #faf9f7; }
+.undo-btn:not(:disabled):hover, .redo-btn:not(:disabled):hover,
+.zoom-btn:hover, .fit-btn:hover { background: #faf9f7; }
 .undo-btn:disabled, .redo-btn:disabled { opacity: .4; cursor: default; }
+/* Fixed-width so the pill doesn't visibly resize/jitter as the percentage's
+   digit count changes while zooming (e.g. 9% -> 100%). */
+.zoom-btn { min-width: 52px; text-align: center; }
 
 .toast {
   position: absolute;

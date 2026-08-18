@@ -6,7 +6,10 @@ import { useGeneration, BOX_BUSY_MESSAGE } from './useGeneration'
 import { initialState, MIN_BOX_W, MIN_BOX_H, type Action } from './state/store'
 import { historyReducer, initialHistoryState, isUndoable, canUndo, canRedo } from './state/history'
 import { load, save } from './state/persist'
-import { findCenterSlot, findFreeSlot, screenToWorld, type Point, type Rect } from './canvas/geometry'
+import {
+  findCenterSlot, findFreeSlot, screenToWorld, fitViewport, resetViewport,
+  type Point, type Rect,
+} from './canvas/geometry'
 import { blocksToText } from './state/types'
 import { fileToDownscaledDataUrl, sortImageCandidates, isImageFile } from './lib/imagePaste'
 
@@ -58,6 +61,15 @@ export default function App() {
   const shellRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [size, setSize] = useState({ w: 1200, h: 800 })
+  // Viewport changes are never undoable (see state/history.ts), so these go
+  // straight through `dispatch` like every other pan/zoom - no `at` stamping
+  // needed since setViewport isn't in the undoable set.
+  const resetView = useCallback(() => {
+    dispatch({ type: 'setViewport', viewport: resetViewport() })
+  }, [dispatch])
+  const fitView = useCallback(() => {
+    dispatch({ type: 'setViewport', viewport: fitViewport(state.boxes, size) })
+  }, [dispatch, state.boxes, size])
   const [autoEditId, setAutoEditId] = useState<string | null>(null)
   // Stable identity: passed down to the React.memo'd TextBox (via Canvas),
   // so a fresh closure every render would defeat that memoization for every
@@ -109,6 +121,27 @@ export default function App() {
       }
 
       const mod = e.metaKey || e.ctrlKey
+
+      // View-reset / zoom-to-fit, following the Figma/Sketch conventions:
+      // Cmd/Ctrl+0 resets to 100%, Cmd/Ctrl+Shift+1 (or plain Shift+1) fits
+      // every box in view. `e.code` (the physical key) rather than `e.key`
+      // is required for the digit check - on a US layout Shift+1 reports
+      // e.key as '!', not '1'. Same editable-target guard as undo/redo
+      // below, and preventDefault() only fires once a shortcut is actually
+      // handled.
+      if (e.code === 'Digit0' && mod) {
+        if (isEditableTarget(e.target) || isInsideExcalidraw(e.target)) return
+        e.preventDefault()
+        resetView()
+        return
+      }
+      if (e.code === 'Digit1' && e.shiftKey) {
+        if (isEditableTarget(e.target) || isInsideExcalidraw(e.target)) return
+        e.preventDefault()
+        fitView()
+        return
+      }
+
       if (!mod) return
       const key = e.key.toLowerCase()
       if (key !== 'z' && !(key === 'y' && e.ctrlKey)) return
@@ -134,7 +167,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [dispatch, undo, redo])
+  }, [dispatch, undo, redo, resetView, fitView])
 
   // Canvas has its own dragover/drop handlers (drop-position-follows-cursor,
   // the .is-dropping affordance), but everything else on the page - the
@@ -394,6 +427,20 @@ export default function App() {
             title="Redo (⌘⇧Z / Ctrl+Shift+Z / Ctrl+Y)"
           >
             Redo
+          </button>
+          <button
+            className="zoom-btn"
+            onClick={resetView}
+            title="Reset zoom to 100% (⌘0 / Ctrl+0)"
+          >
+            {Math.round(state.viewport.zoom * 100)}%
+          </button>
+          <button
+            className="fit-btn"
+            onClick={fitView}
+            title="Zoom to fit (⌘⇧1 / Ctrl+Shift+1 / ⇧1)"
+          >
+            Fit
           </button>
         </div>
         <input

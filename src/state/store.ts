@@ -6,6 +6,14 @@ export const MAX_TURNS = 6
 export const MIN_BOX_W = 160
 export const MIN_BOX_H = 100
 
+// Absolute bounds for the chat panel's drag-resize (see ChatPanel.tsx). The
+// upper bound is also clamped live against half the window width there, so
+// the panel can never swallow the canvas on a narrow screen - these two
+// constants are just the sensible floor/ceiling independent of window size.
+export const MIN_CHAT_WIDTH = 280
+export const MAX_CHAT_WIDTH = 640
+export const DEFAULT_CHAT_WIDTH = 360
+
 export type State = {
   boxes: Box[]
   selection: string[]
@@ -13,6 +21,10 @@ export type State = {
   turns: Turn[]
   /** In-flight rewrite text, keyed by box id. Never rendered as box content. */
   shadow: Record<string, string>
+  /** Chat panel width in px, drag-resizable (see ChatPanel.tsx). Persisted
+   * but not undoable - like viewport, resizing the panel isn't an edit to
+   * the canvas content. */
+  chatWidth: number
 }
 
 export const initialState: State = {
@@ -21,6 +33,7 @@ export const initialState: State = {
   viewport: { x: 0, y: 0, zoom: 1 },
   turns: [],
   shadow: {},
+  chatWidth: DEFAULT_CHAT_WIDTH,
 }
 
 // `& { at?: number }` distributes over every branch of the union below,
@@ -42,6 +55,7 @@ export type Action = (
   | { type: 'toggleSelect'; id: string }
   | { type: 'clearSelection' }
   | { type: 'setViewport'; viewport: Viewport }
+  | { type: 'setChatWidth'; width: number }
   | { type: 'appendDelta'; id: string; text: string }
   | { type: 'setBoxStatus'; id: string; status: Box['status'] }
   | { type: 'setBoxError'; id: string; error: string }
@@ -135,6 +149,12 @@ export function reducer(state: State, action: Action): State {
 
     case 'setViewport':
       return { ...state, viewport: action.viewport }
+
+    // Clamped to the absolute [MIN_CHAT_WIDTH, MAX_CHAT_WIDTH] bounds here as
+    // a last line of defense; the drag handler in ChatPanel.tsx additionally
+    // clamps live against the current window width before ever dispatching.
+    case 'setChatWidth':
+      return { ...state, chatWidth: Math.min(MAX_CHAT_WIDTH, Math.max(MIN_CHAT_WIDTH, action.width)) }
 
     case 'appendDelta':
       return mapBox(state, action.id, (b) => appendText(b, action.text))

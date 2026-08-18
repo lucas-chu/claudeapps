@@ -138,6 +138,14 @@ describe('non-undoable actions create no history step', () => {
     expect(h.present.viewport).toEqual({ x: 10, y: 10, zoom: 2 })
   })
 
+  it('chat panel width changes do not push a step', () => {
+    let h = setup()
+    const pastBefore = h.past
+    h = historyReducer(h, { type: 'setChatWidth', width: 500 })
+    expect(h.past).toBe(pastBefore)
+    expect(h.present.chatWidth).toBe(500)
+  })
+
   it('selection changes do not push a step', () => {
     let h = setup()
     const pastBefore = h.past
