@@ -1,6 +1,7 @@
+# Repo-wide. Each project also has its own .gitignore for anything specific to it.
 .env
-data/
 __pycache__/
 *.pyc
 .venv/
 venv/
+.pytest_cache/
