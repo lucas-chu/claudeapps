@@ -22,14 +22,39 @@ Vite.
 
 ## Deploy it
 
-`npm run build` emits a `dist/` of static files. Any static host will serve it —
-`vercel.json` and `netlify.toml` are included and need no configuration, because
-there is nothing to configure: no environment variables, no functions, no
-secrets.
+`npm run build` emits a `dist/` of static files. Any static host serves it.
+There are no environment variables, no functions and no secrets to configure —
+each visitor supplies their own key at runtime.
 
 ```bash
 npm run build && npm run preview   # check the production build locally
 ```
+
+**This project is one directory inside a larger repo, so the deploy has to point
+at `claudecanvas/`, not the repo root.** There is deliberately no config at the
+root; a root-directory deploy finds no app and silently serves nothing useful.
+
+From the CLI, run inside this directory — that makes it the project root, and
+`vercel.json` / `netlify.toml` here are then picked up automatically:
+
+```bash
+cd claudecanvas
+vercel deploy --prod
+# or
+netlify deploy --prod
+```
+
+Connecting the Git repo instead? Set the project's **root directory** to
+`claudecanvas` (Vercel: Settings → Build → Root Directory; Netlify: Site
+configuration → Build & deploy → Base directory). Build command `npm run build`,
+publish directory `dist`.
+
+### Is the right build live?
+
+The page asks for an API key on first visit. If a freshly-opened private window
+does *not* show that dialog, the deployment predates bring-your-own-key — the
+old build talked to a local server that no longer exists — and needs
+redeploying from the current commit.
 
 ## About your API key
 
