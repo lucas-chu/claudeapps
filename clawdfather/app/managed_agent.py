@@ -197,9 +197,7 @@ def run_side_channel_turn(
             session_id,
             events=[{"type": "user.message", "content": [{"type": "text", "text": text}]}],
         )
-        return _drain(
-            stream, session_id, tool_handler=tool_handler, on_progress=on_progress
-        )
+        return _drain(stream, session_id, tool_handler=tool_handler, on_progress=on_progress)
 
 
 def _drain(stream, session_id, *, tool_handler, on_progress) -> str:
