@@ -1,14 +1,14 @@
 # A Slack Claude that hires Claudes
 
-`@ClaudeFather` is a Claude Managed Agent whose job is hiring other Managed
+`@ClawdFather` is a Claude Managed Agent whose job is hiring other Managed
 Agents. Ask it for a teammate in plain English; it writes that teammate a soul,
 creates its agent, gives it a Slack identity, and moves it into a channel. The
 new teammate then works in Slack under its own name, listens in its home
 channel, and keeps context per thread.
 
 ```
-@ClaudeFather create Scout, a competitive-intelligence researcher.
-              Have it live in #strategy and research competitors.
+@ClawdFather create Scout, a competitive-intelligence researcher.
+             Have it live in #strategy and research competitors.
 
 @Scout research Cursor's latest pricing and tell us how to position against it.
 ```
@@ -16,19 +16,21 @@ channel, and keeps context per thread.
 ## How it works
 
 ```
-Slack (one Socket Mode connection, on ClaudeFather's app)
+Slack (one Socket Mode connection, on ClawdFather's app)
   │   the router app holds channels:history, so it sees every message —
   │   including ones that mention a teammate. Teammate apps never listen.
   ▼
 router.route()
-  ├── from a bot?                → drop (loop guard)
-  ├── mentions @ClaudeFather     → ClaudeFather agent + create_teammate tool
+  ├── bot / join / edit?         → drop (loop guard + noise filter)
+  ├── mentions @ClawdFather      → ClawdFather agent + create_teammate tool
   ├── mentions @Scout            → Scout's agent, always responds
+  ├── reply in a thread Scout
+  │     already owns             → Scout — no mention needed
   ├── in Scout's home channel    → Haiku RESPOND/IGNORE gate, then maybe
   └── otherwise                  → drop
   ▼
 Managed Agent session, one per Slack thread
-  thread_ts ─────────────────────► session_id     (follow-ups keep context)
+  thread_ts ─────────────────────► session_id + owner   (follow-ups keep context)
   ▼
 posted back with that teammate's own bot token
 ```
@@ -54,25 +56,30 @@ and expensive; we only open a session once the gate says RESPOND.
 and no event subscriptions. That collapses "N apps each with a listener" into
 "1 listener + N tokens".
 
+**A thread records its owner, not just its session.** Once Scout has answered in
+a thread, a bare `what about their enterprise tier?` reaches Scout — no
+re-mention, in any channel. Without this, follow-ups outside a home channel are
+silently dropped, which is exactly the conversation the demo depends on.
+
 ## Setup
 
 **1. Slack — one router app + a pool of teammate apps** (~5 minutes, once)
 
 Follow [`slack/SETUP.md`](./slack/SETUP.md). You paste two manifests rather
-than clicking scopes: [`slack/claudefather.manifest.yaml`](./slack/claudefather.manifest.yaml)
+than clicking scopes: [`slack/clawdfather.manifest.yaml`](./slack/clawdfather.manifest.yaml)
 for the router app, and [`slack/teammate.manifest.yaml`](./slack/teammate.manifest.yaml)
 three times for the identity pool.
 
-Then `/invite @ClaudeFather` in every channel you'll demo in — it must be in a
+Then `/invite @ClawdFather` in every channel you'll demo in — it must be in a
 channel to see its messages, and it invites the teammate bots itself.
 
 **2. Configure and create the agents**
 
 ```bash
-cd claudefather               # every command below runs from here
+cd clawdfather
 pip install -r requirements.txt
 cp .env.example .env          # paste your Slack tokens + ANTHROPIC_API_KEY
-python -m scripts.setup       # creates the environment + ClaudeFather agent
+python -m scripts.setup       # creates the environment + ClawdFather agent
                               # paste the printed IDs back into .env
 python -m app.slack           # start listening
 ```
@@ -80,14 +87,26 @@ python -m app.slack           # start listening
 `scripts/setup.py` is one-time. `app/slack.py` is the runtime — it never creates
 an agent, only sessions.
 
+**Before you demo, run the preflight:**
+
+```bash
+python -m scripts.doctor
+```
+
+It checks the things that only fail at runtime and prints the fix for each:
+every token actually authenticates, each teammate's token and user ID come from
+the *same* app (an easy copy-paste mixup), the granted scopes include the ones
+routing depends on, ClawdFather is actually in your demo channels, and the
+agent and environment IDs in `.env` still resolve.
+
 ## Demo
 
 ```
-@ClaudeFather create Scout, a competitive-intelligence researcher.
-              Have it live in #strategy and research competitors.
+@ClawdFather create Scout, a competitive-intelligence researcher.
+             Have it live in #strategy and research competitors.
 
-@ClaudeFather create Builder, a pragmatic staff engineer for #engineering.
-              Terse, opinionated, always names the tradeoff.
+@ClawdFather create Builder, a pragmatic staff engineer for #engineering.
+             Terse, opinionated, always names the tradeoff.
 ```
 
 Then in `#strategy`:
@@ -104,7 +123,7 @@ Then post in `#strategy` without mentioning anyone. Something on-charter
 (`are we losing deals on price?`) gets a reply; `anyone up for lunch?` does not.
 Ask Builder the same question to show two different souls answering differently.
 
-`@ClaudeFather who works here?` lists the roster.
+`@ClawdFather who works here?` lists the roster.
 
 ## Souls
 
@@ -118,17 +137,31 @@ mints a new agent version rather than creating a second teammate.
 ```
 app/
   config.py         env + the Slack identity pool
-  prompts.py        every prompt: ClaudeFather, tool schemas, soul template, gate
-  registry.py       JSON persistence: teammates, thread→session, slot claims
+  prompts.py        every prompt: ClawdFather, tool schemas, soul template, gate
+  registry.py       JSON persistence: teammates, thread→session+owner, slots
   managed_agent.py  Anthropic integration: create agents, run a session turn
-  claudefather.py   the create_teammate / list_teammates tool handlers
+  clawdfather.py    the create_teammate / list_teammates tool handlers
   router.py         who owns this message (pure logic, no I/O)
   slack_client.py   Slack Web API helpers
   slack.py          Socket Mode listener — the runtime entrypoint
-scripts/setup.py    ONE-TIME: environment + ClaudeFather agent
+scripts/setup.py    ONE-TIME: environment + ClawdFather agent
+scripts/doctor.py   preflight: tokens, scopes, channels, agent IDs
+tests/              pytest suite (no network, no credentials)
 souls/              generated charters, checked in
 data/registry.json  teammates + thread→session map (gitignored)
 ```
+
+## Tests
+
+```bash
+pip install pytest ruff && pytest tests -q
+```
+
+50 tests, no network and no credentials: the routing table, the loop guard and
+noise filter, thread ownership and follow-up routing, session reuse and
+handover, the slot pool, and registry persistence including legacy-format and
+corrupt-file recovery. CI runs these plus `ruff` and an import check on every
+PR.
 
 ## Known limits
 

@@ -18,9 +18,9 @@ REGISTRY_PATH = DATA_DIR / "registry.json"
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 ENVIRONMENT_ID = os.environ.get("ENVIRONMENT_ID", "")
-CLAUDEFATHER_AGENT_ID = os.environ.get("CLAUDEFATHER_AGENT_ID", "")
-_bf_version = os.environ.get("CLAUDEFATHER_AGENT_VERSION", "").strip()
-CLAUDEFATHER_AGENT_VERSION = int(_bf_version) if _bf_version else None
+CLAWDFATHER_AGENT_ID = os.environ.get("CLAWDFATHER_AGENT_ID", "")
+_bf_version = os.environ.get("CLAWDFATHER_AGENT_VERSION", "").strip()
+CLAWDFATHER_AGENT_VERSION = int(_bf_version) if _bf_version else None
 
 TEAMMATE_MODEL = os.environ.get("TEAMMATE_MODEL", "claude-opus-5")
 TEAMMATE_EFFORT = os.environ.get("TEAMMATE_EFFORT", "high")
@@ -64,7 +64,7 @@ def require_runtime_config() -> None:
         for name, value in [
             ("ANTHROPIC_API_KEY", ANTHROPIC_API_KEY),
             ("ENVIRONMENT_ID", ENVIRONMENT_ID),
-            ("CLAUDEFATHER_AGENT_ID", CLAUDEFATHER_AGENT_ID),
+            ("CLAWDFATHER_AGENT_ID", CLAWDFATHER_AGENT_ID),
             ("SLACK_BOT_TOKEN", SLACK_BOT_TOKEN),
             ("SLACK_APP_TOKEN", SLACK_APP_TOKEN),
         ]

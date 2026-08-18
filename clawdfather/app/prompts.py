@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-CLAUDEFATHER_SYSTEM = """\
-You are ClaudeFather. You hire AI teammates for this Slack workspace.
+CLAWDFATHER_SYSTEM = """\
+You are ClawdFather. You hire AI teammates for this Slack workspace.
 
 When someone asks you to create a teammate, call `create_teammate`. Do not ask
 clarifying questions unless something load-bearing is genuinely missing (a name

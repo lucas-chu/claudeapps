@@ -1,6 +1,6 @@
 """Slack event ingestion and responses.
 
-One Socket Mode connection, on the router (ClaudeFather) app. Because that app is
+One Socket Mode connection, on the router (ClawdFather) app. Because that app is
 in the channel and holds `channels:history`, it receives every message —
 including ones that mention a teammate. The teammate apps never listen; their
 tokens are only used to post, so each teammate speaks with its own identity.
@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from . import claudefather, config, managed_agent, registry, router, slack_client
+from . import clawdfather, config, managed_agent, registry, router, slack_client
 from .prompts import CREATE_TEAMMATE_TOOL, LIST_TEAMMATES_TOOL
 
 log = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 app = App(token=config.SLACK_BOT_TOKEN, token_verification_enabled=False)
 pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="turn")
 
-CLAUDEFATHER_USER_ID: str = ""
+CLAWDFATHER_USER_ID: str = ""
 
 # Slack re-delivers; a message is handled once.
 _seen: deque[str] = deque(maxlen=2048)
@@ -74,39 +74,36 @@ class Reply:
         if not self.ts or now - self._last < 1.5:
             return
         self._last = now
-        slack_client.update(
-            self.client, channel=self.channel, ts=self.ts, text=text[:2900]
-        )
+        slack_client.update(self.client, channel=self.channel, ts=self.ts, text=text[:2900])
 
     def finish(self, text: str) -> None:
         body = text.strip() or "_(no response)_"
         if self.ts:
-            slack_client.update(
-                self.client, channel=self.channel, ts=self.ts, text=body[:3900]
-            )
+            slack_client.update(self.client, channel=self.channel, ts=self.ts, text=body[:3900])
         else:
             slack_client.post(
                 self.client, channel=self.channel, thread_ts=self.thread_ts, text=body[:3900]
             )
 
 
-def _run_claudefather(*, channel: str, thread_ts: str, text: str) -> None:
+def _run_clawdfather(*, channel: str, thread_ts: str, text: str) -> None:
     reply = Reply(
-        app.client, channel=channel, thread_ts=thread_ts, username="ClaudeFather", emoji="baby"
+        app.client, channel=channel, thread_ts=thread_ts, username="ClawdFather", emoji="baby"
     )
     try:
         answer = managed_agent.run_turn(
-            agent_id=config.CLAUDEFATHER_AGENT_ID,
-            agent_version=config.CLAUDEFATHER_AGENT_VERSION,
+            agent_id=config.CLAWDFATHER_AGENT_ID,
+            agent_version=config.CLAWDFATHER_AGENT_VERSION,
             channel=channel,
             thread_ts=thread_ts,
             text=text,
-            title="ClaudeFather · hiring",
-            tool_handler=claudefather.handle_tool,
+            title="ClawdFather · hiring",
+            owner=registry.CLAWDFATHER,
+            tool_handler=clawdfather.handle_tool,
             on_progress=reply.progress,
         )
     except Exception as exc:
-        log.exception("claudefather turn failed")
+        log.exception("clawdfather turn failed")
         answer = f":warning: Hiring failed — `{type(exc).__name__}: {exc}`"
     reply.finish(answer)
 
@@ -132,6 +129,7 @@ def _run_teammate(teammate: registry.Teammate, *, channel: str, thread_ts: str, 
             thread_ts=thread_ts,
             text=text,
             title=f"{teammate.name} · {channel}",
+            owner=teammate.bot_user_id,
             on_progress=reply.progress,
         )
     except Exception as exc:
@@ -148,9 +146,7 @@ def _run_ambient(decision: router.Decision, *, channel: str, thread_ts: str) -> 
         respond, reason = managed_agent.should_respond(
             soul=soul, recent=history, message=decision.text
         )
-        log.info(
-            "gate %s: %s (%s)", teammate.name, "RESPOND" if respond else "IGNORE", reason
-        )
+        log.info("gate %s: %s (%s)", teammate.name, "RESPOND" if respond else "IGNORE", reason)
         if respond:
             _run_teammate(teammate, channel=channel, thread_ts=thread_ts, text=decision.text)
             return
@@ -158,7 +154,7 @@ def _run_ambient(decision: router.Decision, *, channel: str, thread_ts: str) -> 
 
 @app.event("message")
 def on_message(event, logger):  # noqa: ARG001 — Bolt injects `logger`
-    if router.is_from_bot(event, _our_user_ids()):
+    if router.should_ignore(event, _our_user_ids()):
         return
     channel = event.get("channel", "")
     ts = event.get("ts", "")
@@ -168,34 +164,44 @@ def on_message(event, logger):  # noqa: ARG001 — Bolt injects `logger`
     text = event.get("text", "") or ""
     _recent[channel].append(text)
 
-    decision = router.route(text=text, channel=channel, claudefather_id=CLAUDEFATHER_USER_ID)
+    # A top-level message starts its own thread; replies stay in theirs. Either
+    # way the thread is the session boundary — and, once claimed, the thread
+    # tells us who should answer follow-ups that carry no mention.
+    thread_ts = event.get("thread_ts") or ts
+
+    decision = router.route(
+        text=text,
+        channel=channel,
+        clawdfather_id=CLAWDFATHER_USER_ID,
+        thread_ts=thread_ts,
+    )
     if decision is None:
         return
 
-    # A top-level message starts its own thread; replies stay in theirs. Either
-    # way the thread is the session boundary.
-    thread_ts = event.get("thread_ts") or ts
-
-    if decision.kind == "claudefather":
-        pool.submit(_run_claudefather, channel=channel, thread_ts=thread_ts, text=decision.text)
+    if decision.kind == "clawdfather":
+        pool.submit(_run_clawdfather, channel=channel, thread_ts=thread_ts, text=decision.text)
     elif decision.kind == "direct" and decision.teammate:
         pool.submit(
-            _run_teammate, decision.teammate, channel=channel, thread_ts=thread_ts, text=decision.text
+            _run_teammate,
+            decision.teammate,
+            channel=channel,
+            thread_ts=thread_ts,
+            text=decision.text,
         )
     elif decision.kind == "ambient":
         pool.submit(_run_ambient, decision, channel=channel, thread_ts=thread_ts)
 
 
 def _our_user_ids() -> set[str]:
-    ids = {CLAUDEFATHER_USER_ID} if CLAUDEFATHER_USER_ID else set()
+    ids = {CLAWDFATHER_USER_ID} if CLAWDFATHER_USER_ID else set()
     ids |= {slot.bot_user_id for slot in config.identity_pool()}
     return ids
 
 
-def ensure_claudefather_tools() -> None:
-    """Make sure the stored ClaudeFather agent actually has its hiring tools."""
+def ensure_clawdfather_tools() -> None:
+    """Make sure the stored ClawdFather agent actually has its hiring tools."""
     managed_agent.client.beta.agents.update(
-        config.CLAUDEFATHER_AGENT_ID,
+        config.CLAWDFATHER_AGENT_ID,
         tools=[
             {"type": "agent_toolset_20260401"},
             CREATE_TEAMMATE_TOOL,
@@ -212,11 +218,11 @@ def main() -> None:
     logging.getLogger("slack_sdk").setLevel(logging.WARNING)
     config.require_runtime_config()
 
-    global CLAUDEFATHER_USER_ID
-    CLAUDEFATHER_USER_ID = app.client.auth_test()["user_id"]
+    global CLAWDFATHER_USER_ID
+    CLAWDFATHER_USER_ID = app.client.auth_test()["user_id"]
 
     teammates = registry.all_teammates()
-    log.info("ClaudeFather is <@%s>", CLAUDEFATHER_USER_ID)
+    log.info("ClawdFather is <@%s>", CLAWDFATHER_USER_ID)
     log.info(
         "%d identity slot(s) configured, %d teammate(s) hired%s",
         len(config.identity_pool()),

@@ -10,7 +10,7 @@
 # slack/SETUP.md -> "If the rename doesn't stick".
 display_information:
   name: Teammate One
-  description: A hireable AI teammate. ClaudeFather assigns its personality.
+  description: A hireable AI teammate. ClawdFather assigns its personality.
   background_color: "#4a154b"
 features:
   bot_user:

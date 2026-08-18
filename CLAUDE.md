@@ -10,12 +10,12 @@ inside the project directory, never from the repo root.
 | Project | Where | What |
 |---|---|---|
 | Agent SDK | `checkclaude/` | X bot that fact-checks any post you reply to with `@CheckClaude is this true?` |
-| Managed Agents | `claudefather/` | `@ClaudeFather`, a Slack agent that hires other agents |
+| Managed Agents | `clawdfather/` | `@ClawdFather`, a Slack agent that hires other agents |
 | Messages API | — | unbuilt |
 
 Each project's own README is its authoritative doc; the root `README.md` is only
-an index. Everything below is about `checkclaude/` — for `claudefather/`, read
-[`claudefather/README.md`](./claudefather/README.md).
+an index. Everything below is about `checkclaude/` — for `clawdfather/`, read
+[`clawdfather/README.md`](./clawdfather/README.md).
 
 ## Commands (checkclaude)
 
@@ -93,8 +93,9 @@ These are the reason the thing is trustworthy. Each has tests.
   "general-purpose X assistant" under *do not build*, so non-fact-check asks
   aren't routed anywhere.
 - `CHECKCLAUDE_EFFORT=high` takes ~2–4 min per check; `medium` roughly halves it.
-- CI (`.github/workflows/tests.yml`) runs `pytest` in `checkclaude/` only —
-  ClaudeFather has no test suite.
+- CI is split by project: `.github/workflows/tests.yml` runs `pytest` in
+  `checkclaude/`, `.github/workflows/ci.yml` runs `ruff` + `pytest` in
+  `clawdfather/`. Both fire on every PR.
 
 ## Conventions
 

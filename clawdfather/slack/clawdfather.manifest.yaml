@@ -1,12 +1,12 @@
-# Router app — this is ClaudeFather, and the ONLY app that receives events.
+# Router app — this is ClawdFather, and the ONLY app that receives events.
 # api.slack.com/apps -> Create New App -> From a manifest -> paste this.
 display_information:
-  name: ClaudeFather
+  name: ClawdFather
   description: Hires AI teammates into this workspace.
   background_color: "#2c2d30"
 features:
   bot_user:
-    display_name: ClaudeFather
+    display_name: ClawdFather
     always_online: true
 oauth_config:
   scopes:

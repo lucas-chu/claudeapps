@@ -14,8 +14,8 @@ import json
 import os
 import tempfile
 import threading
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass
-from typing import Iterator
 
 from .config import DATA_DIR, REGISTRY_PATH, Slot, identity_pool
 
@@ -110,7 +110,7 @@ def claim_slot(preferred_name: str) -> Slot:
     """Take a free identity from the pool.
 
     Re-hiring a name that already exists reuses that teammate's slot, so
-    `@ClaudeFather create Scout ...` twice updates Scout instead of burning a slot.
+    `@ClawdFather create Scout ...` twice updates Scout instead of burning a slot.
     """
     with _lock:
         existing = teammate_by_name(preferred_name)
@@ -139,23 +139,52 @@ def slot_for(teammate: Teammate) -> Slot | None:
 
 
 # --------------------------------------------------------------------------
-# Thread -> session
+# Thread -> session + owner
 # --------------------------------------------------------------------------
+#
+# A thread records both its Managed Agent session and who is speaking in it.
+# The owner is what makes follow-ups work: once Scout has answered in a thread,
+# "what about their enterprise tier?" goes to Scout without re-mentioning it,
+# in any channel.
+
+CLAWDFATHER = "clawdfather"  # owner sentinel; teammates use their bot user ID
 
 
 def thread_key(channel: str, thread_ts: str) -> str:
     return f"{channel}:{thread_ts}"
 
 
+def _thread_record(data: dict, channel: str, thread_ts: str) -> dict | None:
+    rec = data["sessions"].get(thread_key(channel, thread_ts))
+    if rec is None:
+        return None
+    # Tolerate the older bare-string form.
+    return {"session_id": rec, "owner": None} if isinstance(rec, str) else rec
+
+
 def get_session(channel: str, thread_ts: str) -> str | None:
     with _lock:
-        return _load()["sessions"].get(thread_key(channel, thread_ts))
+        rec = _thread_record(_load(), channel, thread_ts)
+        return rec["session_id"] if rec else None
 
 
-def set_session(channel: str, thread_ts: str, session_id: str) -> None:
+def thread_owner(channel: str, thread_ts: str) -> str | None:
+    """Bot user ID, the CLAWDFATHER sentinel, or None if the thread is unclaimed."""
+    with _lock:
+        rec = _thread_record(_load(), channel, thread_ts)
+        return rec.get("owner") if rec else None
+
+
+def set_session(channel: str, thread_ts: str, session_id: str, owner: str | None = None) -> None:
     with _lock:
         data = _load()
-        data["sessions"][thread_key(channel, thread_ts)] = session_id
+        key = thread_key(channel, thread_ts)
+        existing = _thread_record(data, channel, thread_ts) or {}
+        data["sessions"][key] = {
+            "session_id": session_id,
+            # Never let a later write silently orphan a thread's owner.
+            "owner": owner if owner is not None else existing.get("owner"),
+        }
         _save(data)
 
 

@@ -1,6 +1,6 @@
-"""ClaudeFather: the Managed Agent that hires other Managed Agents.
+"""ClawdFather: the Managed Agent that hires other Managed Agents.
 
-ClaudeFather is itself an agent. When it decides to hire someone it calls the
+ClawdFather is itself an agent. When it decides to hire someone it calls the
 `create_teammate` custom tool; this module answers that call — provisioning the
 Slack identity, writing the soul file, and creating the teammate's agent — and
 hands the result back over `user.custom_tool_result`.
@@ -44,9 +44,7 @@ def hire(
         agent_id = existing.agent_id
         log.info("re-hired %s -> agent %s v%s", name, agent_id, version)
     else:
-        agent_id, version = managed_agent.create_agent(
-            name=name, system=system_from_soul(soul)
-        )
+        agent_id, version = managed_agent.create_agent(name=name, system=system_from_soul(soul))
         log.info("hired %s -> agent %s v%s", name, agent_id, version)
 
     slack_client.set_bot_profile(slot, display_name=name, real_name=f"{name} · {role}")
@@ -69,7 +67,7 @@ def hire(
 
 
 def handle_tool(name: str, args: dict) -> str:
-    """Answer ClaudeFather's custom tool calls. Raises on failure so the agent sees it."""
+    """Answer ClawdFather's custom tool calls. Raises on failure so the agent sees it."""
     if name == "create_teammate":
         teammate = hire(
             name=args["name"].strip(),

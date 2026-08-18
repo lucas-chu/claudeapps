@@ -1,6 +1,6 @@
 """Thin Slack Web API helpers.
 
-Kept separate from `slack.py` (the Bolt listener) so `claudefather.py` can post and
+Kept separate from `slack.py` (the Bolt listener) so `clawdfather.py` can post and
 provision without importing the listener — that would be a cycle.
 """
 

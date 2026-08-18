@@ -7,7 +7,7 @@ follow-ups in a thread keep their context without us resending history.
 from __future__ import annotations
 
 import logging
-from typing import Callable
+from collections.abc import Callable
 
 import anthropic
 
@@ -87,13 +87,31 @@ def _open_session(agent_id: str, agent_version: int | None, title: str) -> str:
 
 
 def session_for_thread(
-    *, agent_id: str, agent_version: int | None, channel: str, thread_ts: str, title: str
+    *,
+    agent_id: str,
+    agent_version: int | None,
+    channel: str,
+    thread_ts: str,
+    title: str,
+    owner: str | None = None,
 ) -> str:
+    """Get or open this thread's session, recording who speaks in it.
+
+    `owner` is a teammate's bot user ID or `registry.CLAWDFATHER`; the router
+    uses it so in-thread follow-ups reach the same agent without a mention.
+
+    A session belongs to one agent. If someone pulls a second teammate into a
+    thread Scout already owns, reusing Scout's session would have Scout's agent
+    write the answer while Builder's name and avatar go on it — so a handover
+    opens a fresh session instead.
+    """
     existing = registry.get_session(channel, thread_ts)
     if existing:
-        return existing
+        if not owner or registry.thread_owner(channel, thread_ts) == owner:
+            return existing
+        log.info("thread %s handed over to %s; new session", thread_ts, owner)
     session_id = _open_session(agent_id, agent_version, title)
-    registry.set_session(channel, thread_ts, session_id)
+    registry.set_session(channel, thread_ts, session_id, owner=owner)
     return session_id
 
 
@@ -105,6 +123,7 @@ def run_turn(
     thread_ts: str,
     text: str,
     title: str = "Slack thread",
+    owner: str | None = None,
     tool_handler: ToolHandler | None = None,
     on_progress: Progress | None = None,
 ) -> str:
@@ -119,6 +138,7 @@ def run_turn(
         channel=channel,
         thread_ts=thread_ts,
         title=title,
+        owner=owner,
     )
 
     for attempt in (1, 2):
@@ -126,9 +146,7 @@ def run_turn(
             with client.beta.sessions.events.stream(session_id) as stream:
                 client.beta.sessions.events.send(
                     session_id,
-                    events=[
-                        {"type": "user.message", "content": [{"type": "text", "text": text}]}
-                    ],
+                    events=[{"type": "user.message", "content": [{"type": "text", "text": text}]}],
                 )
                 return _drain(
                     stream,
@@ -141,7 +159,9 @@ def run_turn(
             retryable = exc.status_code in (400, 404, 409) and attempt == 1
             if not retryable:
                 raise
-            log.warning("session %s unusable (%s); starting a fresh one", session_id, exc.status_code)
+            log.warning(
+                "session %s unusable (%s); starting a fresh one", session_id, exc.status_code
+            )
             registry.clear_session(channel, thread_ts)
             session_id = session_for_thread(
                 agent_id=agent_id,
@@ -149,6 +169,7 @@ def run_turn(
                 channel=channel,
                 thread_ts=thread_ts,
                 title=title,
+                owner=owner,
             )
     return ""
 

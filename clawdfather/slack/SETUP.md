@@ -1,14 +1,14 @@
 # Slack setup — four apps, ~5 minutes
 
-You create one **router** app (ClaudeFather, the only one that listens) and three
+You create one **router** app (ClawdFather, the only one that listens) and three
 **teammate** identity apps (which only post). Manifests do the scope-clicking
 for you.
 
-## 1. Router app — ClaudeFather
+## 1. Router app — ClawdFather
 
 1. [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** →
    **From a manifest** → pick your workspace
-2. Paste [`claudefather.manifest.yaml`](./claudefather.manifest.yaml) → Next → Create
+2. Paste [`clawdfather.manifest.yaml`](./clawdfather.manifest.yaml) → Next → Create
 3. **Basic Information → App-Level Tokens → Generate Token and Scopes**
    - Name it `socket`, add the `connections:write` scope, Generate
    - Copy the `xapp-…` token → `.env` as `SLACK_APP_TOKEN`
@@ -32,15 +32,15 @@ For each of `Teammate One`, `Teammate Two`, `Teammate Three`:
 > `curl -sH "Authorization: Bearer xoxb-…" https://slack.com/api/auth.test`
 > returns `user_id`.
 
-## 3. Invite ClaudeFather to your channels
+## 3. Invite ClawdFather to your channels
 
 In every channel you'll demo in:
 
 ```
-/invite @ClaudeFather
+/invite @ClawdFather
 ```
 
-ClaudeFather must be in a channel to see its messages — that's the whole routing
+ClawdFather must be in a channel to see its messages — that's the whole routing
 mechanism. It invites the teammate bots itself at hire time.
 
 ## If the rename doesn't stick
@@ -59,8 +59,8 @@ Ten-second fix, per app: api.slack.com/apps → the app → **Basic Information*
 
 | Symptom | Cause |
 |---|---|
-| Nothing happens on `@ClaudeFather …` | ClaudeFather isn't in that channel — `/invite @ClaudeFather` |
+| Nothing happens on `@ClawdFather …` | ClawdFather isn't in that channel — `/invite @ClawdFather` |
 | `not_in_channel` when a teammate posts | Auto-invite failed; `/invite @Teammate One` manually |
 | Teammate posts under the pool name | `chat:write.customize` missing — add it and reinstall |
-| `No channel named #x` at hire time | Create the channel first, or invite ClaudeFather if it's private |
+| `No channel named #x` at hire time | Create the channel first, or invite ClawdFather if it's private |
 | Duplicate replies | Two processes running against the same app-level token |
