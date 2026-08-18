@@ -6,6 +6,11 @@ creates its agent, gives it a Slack identity, and moves it into a channel. The
 new teammate then works in Slack under its own name, listens in its home
 channel, and keeps context per thread.
 
+There's no cap on how many teammates you hire — typically one per channel.
+A small pool of Slack identities is shared across all of them, and teammates
+can pull each other into a conversation with `message_teammate` when a
+question is really someone else's lane.
+
 ```
 @ClawdFather create Scout, a competitive-intelligence researcher.
              Have it live in #strategy and research competitors.
@@ -30,9 +35,11 @@ router.route()
   └── otherwise                  → drop
   ▼
 Managed Agent session, one per Slack thread
-  thread_ts ─────────────────────► session_id + owner   (follow-ups keep context)
+  thread_ts ───────────────────► session_id + owner   (follow-ups keep context)
   ▼
-posted back with that teammate's own bot token
+Scout can call message_teammate → Builder answers inline, visibly, under its own name
+  ▼
+posted back with that teammate's own bot token, split into multiple messages if long
 ```
 
 **Three Anthropic objects, and only one is per-teammate.**
@@ -129,6 +136,24 @@ Ask Builder the same question to show two different souls answering differently.
 
 `@ClawdFather who works here?` lists the roster.
 
+## Teammates as coworkers
+
+Every hired teammate gets two more tools besides general browsing:
+
+- **`message_teammate`** — loop another teammate into the thread by name.
+  Both sides post visibly, under their own names, so it reads like two
+  coworkers talking; the caller also gets the reply back to use in its own
+  answer. Delegation chains are capped at a few hops so two teammates can't
+  loop each other forever.
+- **`add_reaction`** — react to the message it's answering with one emoji,
+  the way a coworker would (sparingly, not on every message).
+
+Teammates are also told to write like a coworker rather than a form: emoji in
+the text where they fit, a GIF link pasted on its own line (found via their
+own browsing — Slack unfurls it into a preview automatically), and no need to
+compress a long answer to fit one message — replies longer than a comfortable
+Slack message are posted as several in a row instead of being cut off.
+
 ## Souls
 
 Each teammate's charter is written to `souls/<name>.md` and becomes that agent's
@@ -173,9 +198,10 @@ Add a template by dropping a file in `templates/` — nothing else to register.
 app/
   config.py         env + the Slack identity pool
   prompts.py        every prompt: ClawdFather, tool schemas, soul template, gate
-  registry.py       JSON persistence: teammates, thread→session+owner, slots
+  registry.py       JSON persistence: teammates (by name), thread→session+owner, slots
   managed_agent.py  Anthropic integration: create agents, run a session turn
   clawdfather.py    the create_teammate / list_teammates tool handlers
+  teammate.py       the message_teammate / add_reaction tool handlers
   templates.py      loads templates/*.md, builds ClawdFather's catalog
   router.py         who owns this message (pure logic, no I/O)
   slack_client.py   Slack Web API helpers
@@ -194,21 +220,32 @@ data/registry.json  teammates + thread→session map (gitignored)
 pip install pytest ruff && pytest tests -q
 ```
 
-65 tests, no network and no credentials: the routing table, the loop guard and
-noise filter, thread ownership and follow-up routing, session reuse and
-handover, the slot pool, registry persistence including legacy-format and
-corrupt-file recovery, and template loading plus how a hire request resolves
-against one. CI runs these plus `ruff` and an import check on every PR.
+82 tests, no network and no credentials: the routing table, the loop guard and
+noise filter, thread ownership and follow-up routing (now by teammate name, so
+a shared Slack identity never confuses a follow-up), session reuse and
+handover, least-loaded slot assignment once teammates outnumber identity
+apps, `message_teammate`/`add_reaction` dispatch and delegation-depth limits,
+registry persistence including legacy-format and corrupt-file recovery, and
+template loading plus how a hire request resolves against one. CI runs these
+plus `ruff` and an import check on every PR.
 
 ## Known limits
 
-- **Bot renaming is best effort.** After hiring, the pooled app is renamed via
-  `users.profile.set` so `@Scout` reads as Scout. If your workspace rejects that
-  scope, messages still appear as *Scout* with Scout's emoji (via the
-  `username` override) but `@`-autocomplete shows the pool app's name. Fix in
-  10 seconds: api.slack.com → the app → Basic Information → Display Information.
-- **Three teammates at a time** — the pool size. Re-hiring an existing name
-  reuses its slot instead of consuming a new one.
+- **Bot renaming is best effort, and only reflects the latest hire on a
+  shared identity.** After hiring, the pooled app is renamed via
+  `users.profile.set` so `@Scout` reads as Scout. Every teammate still posts
+  under its own name and emoji via the `username` override regardless — only
+  `@`-autocomplete shows whichever teammate most recently renamed that slot.
+  Fix in 10 seconds: api.slack.com → the app → Basic Information → Display
+  Information.
+- **A shared identity can't be `@`-mentioned from outside all of its
+  teammates' home channels.** Once teammates outnumber identity apps, several
+  share one Slack user ID; a mention of it is only unambiguous inside one of
+  their home channels (or in a thread that already has an owner), so it's
+  dropped elsewhere rather than guessed.
+- **`message_teammate` exchanges are ephemeral.** Each one opens its own
+  throwaway session rather than reusing either teammate's thread session, so
+  it doesn't carry memory from one delegation to the next.
 - Two teammates sharing a home channel are gated in order; the first RESPOND
   answers, so they never both pile on.
 - Registry is a JSON file, single process. Fine for a demo, not for production.

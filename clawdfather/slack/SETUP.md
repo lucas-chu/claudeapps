@@ -4,6 +4,11 @@ You create one **router** app (ClawdFather, the only one that listens) and three
 **teammate** identity apps (which only post). Manifests do the scope-clicking
 for you.
 
+Three identity apps is just a starting point, not a cap: ClawdFather can hire
+as many named teammates as you ask for, and once they outnumber the identity
+apps, several teammates share one — each still posts under its own name and
+emoji via the `username` override.
+
 ## 1. Router app — ClawdFather
 
 1. [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** →
@@ -24,7 +29,8 @@ For each of `Teammate One`, `Teammate Two`, `Teammate Three`:
    name fields (`display_information.name` and `features.bot_user.display_name`)
    to that teammate's slot name
 3. **Install App** → copy the Bot User OAuth Token → `.env` as
-   `SLACK_TEAMMATE_N_BOT_TOKEN`
+   `SLACK_TEAMMATE_N_BOT_TOKEN` (scopes include `reactions:write`, so teammates
+   can react to messages, not just post)
 4. **App Home** → copy the **Bot User ID** (`U…`) → `.env` as
    `SLACK_TEAMMATE_N_USER_ID`
 

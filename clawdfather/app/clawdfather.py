@@ -12,6 +12,7 @@ import logging
 import re
 
 from . import config, managed_agent, registry, slack_client, templates
+from . import teammate as teammate_tools
 from .prompts import render_soul, system_from_soul
 
 log = logging.getLogger(__name__)
@@ -97,7 +98,9 @@ def hire(
         agent_id = existing.agent_id
         log.info("re-hired %s -> agent %s v%s", name, agent_id, version)
     else:
-        agent_id, version = managed_agent.create_agent(name=name, system=system_from_soul(soul))
+        agent_id, version = managed_agent.create_agent(
+            name=name, system=system_from_soul(soul), tools=teammate_tools.TEAMMATE_TOOLS
+        )
         log.info("hired %s -> agent %s v%s", name, agent_id, version)
 
     slack_client.set_bot_profile(slot, display_name=name, real_name=f"{name} · {role}")

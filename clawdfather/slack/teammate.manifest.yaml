@@ -1,5 +1,9 @@
-# Teammate identity — create THREE of these, changing only the two names to
-# "Teammate One" / "Teammate Two" / "Teammate Three".
+# Teammate identity — create a few of these (three is a good starting pool),
+# changing only the two names to "Teammate One" / "Teammate Two" / etc.
+#
+# This is a *shared* pool: ClawdFather can hire far more named teammates than
+# you have identity apps — several teammates just rotate across the same
+# Slack identity, posting under their own name via the `username` override.
 #
 # These apps never listen: no Socket Mode, no event subscriptions. Their tokens
 # are used only to post, so each hired teammate speaks under its own identity.
@@ -22,6 +26,7 @@ oauth_config:
       - chat:write
       - chat:write.customize
       - users.profile:write
+      - reactions:write
 settings:
   interactivity:
     is_enabled: false
