@@ -17,8 +17,10 @@ export const HISTORY_LIMIT = 50
 /**
  * The structural edits that create an undo step. Deliberately narrow:
  * streaming churn (appendDelta/appendShadow/beginShadow/rollbackShadow/
- * setBoxStatus/setBoxSources/setBoxPrompt) fires tens of times a second and
- * would obliterate history; viewport, chat panel width, selection, and the
+ * setBoxStatus/setBoxSources/setBoxPrompt/growBox) fires tens of times a
+ * second and would obliterate history - a box auto-growing to fit the answer
+ * being written into it is part of that generation, not a step the user should
+ * have to undo one dispatch at a time; viewport, chat panel width, selection, and the
  * chat thread are left out because undoing a pan/zoom, a panel resize, a
  * selection, or a chat message is surprising in a canvas app. `load` is
  * handled separately below (it resets history rather than pushing a step).

@@ -76,6 +76,32 @@ supplied out of band, stricter per-identity (not just per-IP) rate limits,
 and a decision about what "agent" needs to mean before money changes hands —
 none of which this project takes a position on.
 
+## Deploying to Vercel
+
+`api/*.ts` mirrors `src/server.ts` route-for-route (both call into
+`src/handlers.ts`, the single source of truth for behavior), so the same app
+runs as one long-lived process locally and as isolated serverless functions
+on Vercel. Deploy with `vercel deploy` from this directory.
+
+This changes the threat model in one important way: Vercel gives no shared
+memory across functions or instances, only per-instance memory that
+disappears on cold start. Two consequences:
+
+- **`ONLYAGENTS_SECRET` must be set as a real Vercel environment variable.**
+  Without it, each function (challenge/hop/claim) generates its own random
+  secret independently, and a hop issued by one instance would fail
+  verification against a different instance's secret almost immediately.
+  With it, every instance in a given deployment signs and verifies with the
+  same key, so the chain works exactly as it does locally.
+- **Rate limiting and the single-use replay guard become per-instance, not
+  global.** A caller that lands on a different warm instance between
+  requests gets a fresh limiter and a fresh replay guard. This weakens both
+  protections under real concurrent load; it does not eliminate the
+  signature/ordering checks that make the chain itself unforgeable. Accepted
+  here because `/api/claim` only ever returns a demo placeholder — see "Why
+  no real codes" above. A production deployment issuing real codes would
+  need a shared store (Vercel KV, Upstash Redis, etc.) for both.
+
 ## Known limitations
 
 - Rate limiting keys off `socket.remoteAddress` only; behind a proxy every

@@ -8,6 +8,7 @@ import remarkGfm from 'remark-gfm'
 import type { Element as HastElement } from 'hast'
 import type { Viewport } from './geometry'
 import { worldToScreen } from './geometry'
+import { autoGrowHeight } from './autoGrow'
 import DrawingBox from './DrawingBox'
 import type { Action } from '../state/store'
 import { blocksToText, type Box } from '../state/types'
@@ -246,6 +247,33 @@ function TextBox({
     // Runs once, at mount, for the box this render belongs to.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // A box is created at a fixed default size, so anything longer than a few
+  // lines used to stream straight out of sight behind the body's scrollbar -
+  // the user watched the first paragraph and had to scroll to find the rest.
+  // Growing the box itself on each revealed chunk keeps the whole answer in
+  // view as it arrives. Only while it is being written: a box the user is
+  // editing, or one that has already settled, keeps whatever size they gave
+  // it.
+  const autoGrows = box.status === 'streaming' && !editing && !imageOnly && !drawingOnly
+  useEffect(() => {
+    if (!autoGrows) return
+    const el = bodyRef.current
+    if (!el) return
+    const overflow = el.scrollHeight - el.clientHeight
+    const next = autoGrowHeight(box.h, overflow, viewport.zoom)
+    if (next !== null) {
+      // Changing box.h re-runs this effect, so a chunk that needs more than
+      // one pass (or a growth clamped by MAX_AUTO_GROW_H) converges instead
+      // of settling short of the content.
+      dispatch({ type: 'growBox', id: box.id, h: next })
+    } else if (overflow > 0) {
+      // At the growth ceiling, or too zoomed out to grow usefully: follow the
+      // stream instead, so the newest text is what's on screen rather than a
+      // frozen view of the opening paragraph.
+      el.scrollTop = el.scrollHeight
+    }
+  }, [autoGrows, text, box.h, box.id, viewport.zoom, dispatch])
 
   useEffect(() => {
     if (!sel || !editing) return

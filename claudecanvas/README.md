@@ -60,6 +60,12 @@ selected:
 Every prompt also appears in the chat panel, labelled with what it did
 (`→ created a box`), so the panel is a complete record of the session.
 
+**Boxes grow while they're written.** A box being streamed into expands downward
+to fit the text as it arrives, so an answer longer than the default box isn't
+hidden behind a scrollbar. Growth is height-only (widening would reflow lines
+you're already reading) and stops at 720px, past which the box follows the
+stream instead. Once the answer lands, the size is yours to change.
+
 **Chat.** A normal Claude conversation on the right. Any reply can be pushed onto
 the canvas with **Send to canvas**; the resulting box keeps a `from chat ↗` chip
 that scrolls the panel back to the turn it came from.
@@ -122,8 +128,8 @@ cross-origin call from a page.
 ```
 src/
   api/         Anthropic calls (stream.ts), web-search source extraction
-  canvas/      geometry (the ONLY place screen<->world math lives), Canvas,
-               TextBox, DrawingBox (Excalidraw)
+  canvas/      geometry (the ONLY place screen<->world math lives), autoGrow,
+               Canvas, TextBox, DrawingBox (Excalidraw)
   chat/        ChatPanel
   state/       types, reducer, undo history, request assembly, persistence,
                apiKey (where the user's key is kept)
@@ -144,7 +150,7 @@ Two things are load-bearing and easy to break:
 ## Checks
 
 ```bash
-npm test        # 257 unit tests
+npm test        # 273 unit tests
 npm run build
 npm run typecheck
 ```

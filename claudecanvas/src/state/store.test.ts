@@ -32,6 +32,31 @@ describe('boxes', () => {
     expect(b.h).toBeGreaterThanOrEqual(100)
   })
 
+  it('grows a box taller without touching its width or position', () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a', { x: 20, y: 30 }) })
+    s = reducer(s, { type: 'growBox', id: 'a', h: 400 })
+    expect(s.boxes[0]).toMatchObject({ x: 20, y: 30, w: 320, h: 400 })
+  })
+
+  it('never shrinks a box on grow', () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a', { h: 500 }) })
+    s = reducer(s, { type: 'growBox', id: 'a', h: 120 })
+    expect(s.boxes[0].h).toBe(500)
+  })
+
+  it('keeps a grown box at or above the minimum height', () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a', { h: 100 }) })
+    s = reducer(s, { type: 'growBox', id: 'a', h: 10 })
+    expect(s.boxes[0].h).toBeGreaterThanOrEqual(100)
+  })
+
+  it('grows only the targeted box', () => {
+    let s = reducer(initialState, { type: 'addBox', box: box('a') })
+    s = reducer(s, { type: 'addBox', box: box('b') })
+    s = reducer(s, { type: 'growBox', id: 'a', h: 640 })
+    expect(s.boxes.find((b) => b.id === 'b')?.h).toBe(220)
+  })
+
   it('deletes a box and drops it from the selection', () => {
     let s = reducer(initialState, { type: 'addBox', box: box('a') })
     s = reducer(s, { type: 'deleteBox', id: 'a' })
