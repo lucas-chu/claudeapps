@@ -23,7 +23,15 @@ export const initialState: State = {
   shadow: {},
 }
 
-export type Action =
+// `& { at?: number }` distributes over every branch of the union below,
+// giving each action an optional client-stamped timestamp. It exists purely
+// for src/state/history.ts's coalescing decisions (see that file) — this
+// reducer never reads it, so it stays pure and clock-free. Threading it here
+// (rather than, say, a wrapper type in history.ts) means every call site
+// that already builds an Action - Canvas, TextBox, useGeneration - keeps
+// compiling unchanged; only the dispatch wrapper in App.tsx needs to know
+// about `at`.
+export type Action = (
   | { type: 'addBox'; box: Box }
   | { type: 'moveBox'; id: string; x: number; y: number }
   | { type: 'resizeBox'; id: string; x: number; y: number; w: number; h: number }
@@ -50,6 +58,7 @@ export type Action =
   | { type: 'appendTurnDelta'; id: string; text: string }
   | { type: 'clearThread' }
   | { type: 'load'; state: State }
+) & { at?: number }
 
 function mapBox(state: State, id: string, fn: (b: Box) => Box): State {
   return { ...state, boxes: state.boxes.map((b) => (b.id === id ? fn(b) : b)) }

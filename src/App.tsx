@@ -3,7 +3,8 @@ import Canvas from './canvas/Canvas'
 import Omnibar from './Omnibar'
 import ChatPanel from './chat/ChatPanel'
 import { useGeneration, BOX_BUSY_MESSAGE } from './useGeneration'
-import { reducer, initialState, MIN_BOX_W, MIN_BOX_H } from './state/store'
+import { initialState, MIN_BOX_W, MIN_BOX_H, type Action } from './state/store'
+import { historyReducer, initialHistoryState, isUndoable, canUndo, canRedo } from './state/history'
 import { load, save } from './state/persist'
 import { findCenterSlot, findFreeSlot, screenToWorld, type Point, type Rect } from './canvas/geometry'
 import { blocksToText } from './state/types'
@@ -17,8 +18,43 @@ const PASTED_IMAGE_MAX_W = 420
 // canvas with boxes, so every image-adding path shares this cap.
 const MAX_IMAGES_PER_ADD = 5
 
+/** Native text-undo (browser-handled) must win inside a text field, and
+ * Excalidraw's own undo must win inside a drawing box - both cases are
+ * detected purely from the event target, no app state involved. */
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const tag = target.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable
+}
+
+/** Excalidraw renders its whole UI (including the drawing surface itself,
+ * which isn't a text field) under a `.excalidraw` root and keeps its own
+ * undo stack. A ⌘Z/Ctrl+Z whose target lands anywhere in that subtree - a
+ * drawn shape has focus, not a text field - must be left for Excalidraw to
+ * handle, not hijacked by the canvas-level shortcut below. */
+function isInsideExcalidraw(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('.excalidraw') !== null
+}
+
 export default function App() {
-  const [state, dispatch] = useReducer(reducer, initialState, (s) => load() ?? s)
+  // History wraps the plain box/canvas reducer (see state/history.ts) rather
+  // than replacing it - `state` below is always the same `State` shape every
+  // other component already expects, so only this component and the
+  // undo/redo plumbing need to know history exists.
+  const [history, dispatchRaw] = useReducer(historyReducer, initialState, (s) =>
+    initialHistoryState(load() ?? s),
+  )
+  const state = history.present
+  // Stamps `at: Date.now()` onto undoable actions so history.ts's coalescing
+  // can compare timestamps without ever calling Date.now() itself - that
+  // keeps historyReducer pure and lets tests drive coalescing deterministically
+  // by passing `at` directly. Every other call site (Canvas, TextBox,
+  // useGeneration, ...) is untouched: they still just build a plain Action.
+  const dispatch = useCallback((action: Action) => {
+    dispatchRaw(isUndoable(action.type) ? { ...action, at: action.at ?? Date.now() } : action)
+  }, [])
+  const undo = useCallback(() => dispatchRaw({ type: 'undo' }), [])
+  const redo = useCallback(() => dispatchRaw({ type: 'redo' }), [])
   const shellRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [size, setSize] = useState({ w: 1200, h: 800 })
@@ -67,11 +103,38 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') dispatch({ type: 'clearSelection' })
+      if (e.key === 'Escape') {
+        dispatch({ type: 'clearSelection' })
+        return
+      }
+
+      const mod = e.metaKey || e.ctrlKey
+      if (!mod) return
+      const key = e.key.toLowerCase()
+      if (key !== 'z' && !(key === 'y' && e.ctrlKey)) return
+
+      // Typing in a text field: let the browser's native text-undo handle
+      // it. A drawing box: let Excalidraw's own undo handle it (it has
+      // focus inside its own canvas, not a text field, so this needs a
+      // separate check from the one above). Either way, don't touch
+      // dispatch and don't preventDefault - only handle it if we actually
+      // handle it.
+      if (isEditableTarget(e.target) || isInsideExcalidraw(e.target)) return
+
+      if (key === 'y') {
+        e.preventDefault()
+        redo()
+      } else if (e.shiftKey) {
+        e.preventDefault()
+        redo()
+      } else {
+        e.preventDefault()
+        undo()
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [dispatch, undo, redo])
 
   // Canvas has its own dragover/drop handlers (drop-position-follows-cursor,
   // the .is-dropping affordance), but everything else on the page - the
@@ -315,6 +378,22 @@ export default function App() {
           </button>
           <button className="draw-btn" onClick={addDrawingBox}>
             Draw
+          </button>
+          <button
+            className="undo-btn"
+            onClick={undo}
+            disabled={!canUndo(history)}
+            title="Undo (⌘Z / Ctrl+Z)"
+          >
+            Undo
+          </button>
+          <button
+            className="redo-btn"
+            onClick={redo}
+            disabled={!canRedo(history)}
+            title="Redo (⌘⇧Z / Ctrl+Shift+Z / Ctrl+Y)"
+          >
+            Redo
           </button>
         </div>
         <input
