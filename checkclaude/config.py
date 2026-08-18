@@ -39,6 +39,11 @@ class Config:
     model: str = os.getenv("CHECKCLAUDE_MODEL", "claude-opus-5")
     effort: str = os.getenv("CHECKCLAUDE_EFFORT", "high")
     max_turns: int = _int("CHECKCLAUDE_MAX_TURNS", 40)
+    # Fan out one investigator subagent per sub-claim. Off means one agent does
+    # the whole investigation in one context - cheaper and faster, but multi-part
+    # claims get researched worse.
+    fanout: bool = _bool("CHECKCLAUDE_FANOUT", True)
+    max_investigators: int = _int("CHECKCLAUDE_MAX_INVESTIGATORS", 4)
     timeout_seconds: int = _int("CHECKCLAUDE_TIMEOUT_SECONDS", 480)
 
     # --- Response ----------------------------------------------------------

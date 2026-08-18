@@ -50,6 +50,21 @@ class Source:
 
 
 @dataclass
+class SubClaim:
+    """One decomposed part of the post, usually researched by its own subagent.
+
+    Carrying sources per sub-claim is what lets the guard tell "the whole answer
+    is unsourced" apart from "one half of the answer is unsourced" - the second
+    is invisible if you only look at the pooled source list.
+    """
+
+    claim: str
+    finding: str = ""
+    verdict: str = "UNVERIFIABLE"
+    sources: list[Source] = field(default_factory=list)
+
+
+@dataclass
 class FactCheck:
     verdict: str
     claim: str
@@ -57,6 +72,7 @@ class FactCheck:
     sources: list[Source] = field(default_factory=list)
     confidence: str = "medium"
     notes: str = ""
+    sub_claims: list[SubClaim] = field(default_factory=list)
 
 
 @dataclass
@@ -66,6 +82,7 @@ class GuardedReply:
     dropped_sources: list[Source] = field(default_factory=list)
     downgraded: bool = False
     truncated: bool = False
+    unsupported_sub_claims: list[str] = field(default_factory=list)
 
     @property
     def warnings(self) -> list[str]:
@@ -74,6 +91,11 @@ class GuardedReply:
             out.append(
                 "dropped unretrieved citations: "
                 + ", ".join(f"{s.name} <{s.url}>" for s in self.dropped_sources)
+            )
+        if self.unsupported_sub_claims:
+            out.append(
+                "sub-claims with no verifiable source: "
+                + "; ".join(self.unsupported_sub_claims)
             )
         if self.downgraded:
             out.append("downgraded to UNVERIFIABLE: no verifiable source survived")
@@ -157,6 +179,40 @@ def compose(check: FactCheck, max_chars: int, style: str = CONVERSATIONAL) -> tu
     return assemble(body, sources, False), truncated
 
 
+def _split_sources(
+    sources: list[Source], retrieved: set[str]
+) -> tuple[list[Source], list[Source]]:
+    """Partition citations into ones backed by a retrieved page and ones not."""
+    kept: list[Source] = []
+    dropped: list[Source] = []
+    for source in sources:
+        (kept if normalize_url(source.url) in retrieved else dropped).append(source)
+    return kept, dropped
+
+
+def _dedupe(sources: list[Source]) -> list[Source]:
+    seen: set[tuple[str, str]] = set()
+    out: list[Source] = []
+    for source in sources:
+        key = (source.name, normalize_url(source.url))
+        if key not in seen:
+            seen.add(key)
+            out.append(source)
+    return out
+
+
+# Prepended to the reply when evidence did not survive the citation check. There
+# is no header in conversational style, so the prose has to carry the downgrade.
+_UNSOURCED = (
+    "I couldn't confirm this against a source I was able to open, so treat this "
+    "as unverified. "
+)
+_PARTLY_UNSOURCED = (
+    "Part of this I couldn't confirm against a source I was able to open, so "
+    "treat it as unverified. "
+)
+
+
 def guard(
     check: FactCheck,
     retrieved_urls: set[str],
@@ -169,32 +225,52 @@ def guard(
         check.verdict = "UNVERIFIABLE"
 
     retrieved = {normalize_url(u) for u in retrieved_urls}
-    kept: list[Source] = []
-    dropped: list[Source] = []
-    for source in check.sources:
-        if normalize_url(source.url) in retrieved:
-            kept.append(source)
-        else:
-            dropped.append(source)
+    kept, dropped = _split_sources(check.sources, retrieved)
+
+    # Each sub-claim is checked against reality on its own. Pooling the sources
+    # would let a well-sourced half vouch for an unsourced one, which is exactly
+    # the failure the citation check exists to prevent.
+    unsupported: list[str] = []
+    for sub in check.sub_claims:
+        sub.verdict = sub.verdict.upper().replace(" ", "_")
+        sub_kept, sub_dropped = _split_sources(sub.sources, retrieved)
+        dropped.extend(sub_dropped)
+        sub.sources = sub_kept
+        if sub.verdict in ASSERTIVE and not sub_kept:
+            unsupported.append(sub.claim)
+            sub.verdict = "UNVERIFIABLE"
+
+    # The schema asks for both a top-level source list and per-sub-claim ones, so
+    # an agent that files everything under the sub-claims would leave the reply
+    # unattributed and get downgraded for it. Promote what it did verify instead;
+    # these have already passed the same citation check.
+    if not kept and check.sub_claims:
+        kept = _dedupe([s for sub in check.sub_claims for s in sub.sources])
 
     downgraded = False
     if check.verdict in ASSERTIVE and not kept:
-        check.verdict = "UNVERIFIABLE"
+        prefix = _UNSOURCED
         downgraded = True
-        # In conversational style there is no header to carry the downgrade, so
-        # the uncertainty has to be stated in the prose itself.
+    elif check.verdict in ASSERTIVE and unsupported:
+        # One unverified part is enough to sink an assertive verdict about the
+        # whole: you cannot assert a conjunction you only half-checked. This can
+        # cost a defensible FALSE whose falsity rests on the supported half - a
+        # deliberate trade, in the direction of failing safe.
+        prefix = _PARTLY_UNSOURCED
+        downgraded = True
+
+    if downgraded:
+        check.verdict = "UNVERIFIABLE"
         if check.body:
-            check.body = (
-                "I couldn't confirm this against a source I was able to open, so treat "
-                "this as unverified. " + check.body
-            )
+            check.body = prefix + check.body
 
     check.sources = kept
     text, truncated = compose(check, max_chars, style)
     return GuardedReply(
         text=text,
         fact_check=check,
-        dropped_sources=dropped,
+        dropped_sources=_dedupe(dropped),
         downgraded=downgraded,
         truncated=truncated,
+        unsupported_sub_claims=unsupported,
     )

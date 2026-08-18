@@ -140,6 +140,13 @@ async def run_once(target: str, question: str) -> int:
     print("--- /reply ---\n")
     print(f"claim:      {reply.fact_check.claim}")
     print(f"confidence: {reply.fact_check.confidence}")
+    print(f"research:   {run.research_summary()}")
+    for sub in reply.fact_check.sub_claims:
+        print(f"sub-claim:  [{sub.verdict}] {sub.claim}")
+        if sub.finding:
+            print(f"            {sub.finding}")
+        for source in sub.sources:
+            print(f"            {source.name} {source.url}")
     if reply.fact_check.notes:
         print(f"notes:      {reply.fact_check.notes}")
     for source in reply.fact_check.sources:
@@ -147,6 +154,23 @@ async def run_once(target: str, question: str) -> int:
     for warning in reply.warnings:
         print(f"warning:    {warning}")
     return 0
+
+
+# Libraries that log credentials at DEBUG. oauthlib prints the signature base
+# string, which embeds the consumer key and the access token in cleartext, so
+# `-v` output would otherwise be unsafe to paste, screen-share, or redirect to
+# a file. Muting these is a security control, not tidiness.
+CREDENTIAL_LEAKING_LOGGERS = ("oauthlib", "requests_oauthlib")
+
+
+def configure_logging(verbose: bool = False) -> None:
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    for name in ("httpx", "urllib3", *CREDENTIAL_LEAKING_LOGGERS):
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def main() -> int:
@@ -157,13 +181,7 @@ def main() -> int:
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    configure_logging(args.verbose)
 
     if args.dry_run:
         object.__setattr__(config, "dry_run", True)

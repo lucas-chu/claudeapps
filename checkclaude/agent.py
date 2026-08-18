@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from claude_agent_sdk import (
+    AgentDefinition,
     AssistantMessage,
     ClaudeAgentOptions,
     ResultMessage,
@@ -35,12 +36,23 @@ from claude_agent_sdk import (
 
 from config import Config, config
 from context import CheckContext
-from prompts import FOLLOWUP_NOTE, OBJECTIVE, STYLE_GUIDANCE, SYSTEM_PROMPT
-from verdict import FactCheck, Source
+from prompts import (
+    DELEGATION_GUIDANCE,
+    FOLLOWUP_NOTE,
+    INVESTIGATOR_PROMPT,
+    OBJECTIVE,
+    STYLE_GUIDANCE,
+    SYSTEM_PROMPT,
+)
+from verdict import FactCheck, Source, SubClaim
 
 log = logging.getLogger(__name__)
 
 _URL_RE = re.compile(r"https?://[^\s<>\"'\\)\]]+")
+
+# The SDK's subagent-dispatch tool. Verified against the running CLI rather than
+# assumed: passing "Task" gets you a tool that reports itself as "Agent".
+DELEGATION_TOOL = "Agent"
 
 VERDICT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -88,6 +100,55 @@ VERDICT_SCHEMA: dict[str, Any] = {
                 "required": ["name", "url"],
             },
         },
+        "sub_claims": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 5,
+            "description": (
+                "The claim decomposed into the parts you actually investigated, "
+                "one entry per part - normally one per investigator you "
+                "dispatched. Attribute sources to the sub-claim they support: "
+                "each sub-claim's citations are verified on their own, so a "
+                "well-sourced part cannot vouch for an unsourced one."
+            ),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "claim": {
+                        "type": "string",
+                        "description": "This part of the claim, in your own words.",
+                    },
+                    "finding": {
+                        "type": "string",
+                        "description": "What the evidence says about this part. Never posted.",
+                    },
+                    "verdict": {
+                        "type": "string",
+                        "enum": [
+                            "TRUE",
+                            "MOSTLY_TRUE",
+                            "MISLEADING",
+                            "FALSE",
+                            "UNVERIFIABLE",
+                        ],
+                        "description": "Your verdict on this part alone.",
+                    },
+                    "sources": {
+                        "type": "array",
+                        "description": "Retrieved sources supporting this part specifically.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "url": {"type": "string"},
+                            },
+                            "required": ["name", "url"],
+                        },
+                    },
+                },
+                "required": ["claim", "verdict"],
+            },
+        },
         "confidence": {
             "type": "string",
             "enum": ["low", "medium", "high"],
@@ -111,11 +172,19 @@ class AgentRun:
     retrieved_urls: set[str] = field(default_factory=set)
     tool_calls: Counter[str] = field(default_factory=Counter)
     tool_errors: Counter[str] = field(default_factory=Counter)
+    # Briefs the lead agent sent to investigators, in dispatch order. Useful for
+    # seeing how it chose to decompose the claim.
+    briefs: list[str] = field(default_factory=list)
+    delegated_tool_calls: int = 0
     error: str | None = None
 
     @property
     def total_tool_calls(self) -> int:
         return sum(self.tool_calls.values())
+
+    @property
+    def investigators(self) -> int:
+        return self.tool_calls.get(DELEGATION_TOOL, 0)
 
     def research_summary(self) -> str:
         """One line describing what the research loop actually managed to do.
@@ -125,7 +194,12 @@ class AgentRun:
         should be visible rather than silent.
         """
         parts = []
+        if self.investigators:
+            delegated = f", {self.delegated_tool_calls} delegated calls" if self.delegated_tool_calls else ""
+            parts.append(f"{self.investigators} investigators{delegated}")
         for name, count in sorted(self.tool_calls.items()):
+            if name == DELEGATION_TOOL:
+                continue  # already reported as investigators
             failed = self.tool_errors.get(name, 0)
             parts.append(f"{name} {count}" + (f" ({failed} failed)" if failed else ""))
         return ", ".join(parts) or "no tools used"
@@ -195,11 +269,46 @@ def _build_verdict_server(captured: dict[str, Any]):
     return create_sdk_mcp_server(name="verdict", version="1.0.0", tools=[submit_verdict])
 
 
-def _to_fact_check(raw: dict[str, Any]) -> FactCheck:
-    sources = [
+def _build_investigator(cfg: Config) -> AgentDefinition:
+    """A researcher that can only search and fetch.
+
+    Note what it does *not* get: no verdict tool (only the lead submits), and no
+    delegation tool of its own, so an investigator cannot spawn investigators.
+    The lead's tool surface widens by exactly one tool, and everything it reaches
+    through that tool is still confined to search and fetch.
+    """
+    return AgentDefinition(
+        description=(
+            "Researches one narrow factual sub-claim on the web and reports what "
+            "the evidence says, with the URLs it actually retrieved. Dispatch one "
+            "per independent sub-claim, in a single batch so they run in parallel."
+        ),
+        prompt=INVESTIGATOR_PROMPT,
+        tools=["WebSearch", "WebFetch"],
+        model=cfg.model,
+        maxTurns=cfg.max_turns,
+    )
+
+
+def _to_sources(raw: Any) -> list[Source]:
+    return [
         Source(name=str(s.get("name", "")).strip(), url=str(s.get("url", "")).strip())
-        for s in raw.get("sources") or []
+        for s in raw or []
         if isinstance(s, dict) and s.get("url")
+    ]
+
+
+def _to_fact_check(raw: dict[str, Any]) -> FactCheck:
+    sources = _to_sources(raw.get("sources"))
+    sub_claims = [
+        SubClaim(
+            claim=str(sub.get("claim", "")).strip(),
+            finding=str(sub.get("finding", "")).strip(),
+            verdict=str(sub.get("verdict", "UNVERIFIABLE")).upper().replace(" ", "_"),
+            sources=_to_sources(sub.get("sources")),
+        )
+        for sub in raw.get("sub_claims") or []
+        if isinstance(sub, dict) and sub.get("claim")
     ]
     return FactCheck(
         verdict=str(raw.get("verdict", "UNVERIFIABLE")).upper().replace(" ", "_"),
@@ -208,6 +317,39 @@ def _to_fact_check(raw: dict[str, Any]) -> FactCheck:
         sources=sources,
         confidence=str(raw.get("confidence", "medium")).lower(),
         notes=str(raw.get("notes", "")).strip(),
+        sub_claims=sub_claims,
+    )
+
+
+def build_options(cfg: Config, captured: dict[str, Any]) -> ClaudeAgentOptions:
+    """Assemble the lead agent's options - and with them, its tool surface.
+
+    This is the structural safety boundary, so it is a function you can call in a
+    test rather than a literal buried inside the run loop.
+    """
+    # Research tools only - no Bash, no filesystem, nothing with side effects.
+    tools = ["WebSearch", "WebFetch"]
+    agents: dict[str, AgentDefinition] | None = None
+    if cfg.fanout:
+        # The one widening: the lead may delegate. What it can reach through
+        # delegation is still only search and fetch, because that is all the
+        # investigator has.
+        tools.append(DELEGATION_TOOL)
+        agents = {"investigator": _build_investigator(cfg)}
+
+    return ClaudeAgentOptions(
+        system_prompt=SYSTEM_PROMPT.replace(
+            "{delegation}", DELEGATION_GUIDANCE if cfg.fanout else ""
+        ),
+        model=cfg.model,
+        effort=cfg.effort,
+        max_turns=cfg.max_turns,
+        tools=tools,
+        allowed_tools=[*tools, "mcp__verdict__submit_verdict"],
+        agents=agents,
+        mcp_servers={"verdict": _build_verdict_server(captured)},
+        permission_mode="dontAsk",
+        setting_sources=[],  # ignore any CLAUDE.md / settings on the host
     )
 
 
@@ -229,42 +371,47 @@ async def fact_check(ctx: CheckContext, cfg: Config = config) -> AgentRun:
     if ctx.is_followup:
         prompt = f"{prompt}\n{FOLLOWUP_NOTE}"
 
-    options = ClaudeAgentOptions(
-        system_prompt=SYSTEM_PROMPT,
-        model=cfg.model,
-        effort=cfg.effort,
-        max_turns=cfg.max_turns,
-        # Research tools only - no Bash, no filesystem, nothing with side effects.
-        tools=["WebSearch", "WebFetch"],
-        allowed_tools=["WebSearch", "WebFetch", "mcp__verdict__submit_verdict"],
-        mcp_servers={"verdict": _build_verdict_server(captured)},
-        permission_mode="dontAsk",
-        setting_sources=[],  # ignore any CLAUDE.md / settings on the host
-    )
+    options = build_options(cfg, captured)
 
     tool_names: dict[str, str] = {}  # tool_use id -> tool name, to attribute results
+    result_subtype = "incomplete"
 
     try:
         async with asyncio.timeout(cfg.timeout_seconds):
             async for message in query(prompt=prompt, options=options):
                 _harvest_urls(message, run.retrieved_urls)
+                # Subagent messages arrive on this same stream, tagged with the
+                # id of the Agent call that spawned them. That is what keeps the
+                # citation check whole: pages an investigator fetched are
+                # harvested exactly like pages the lead fetched.
+                delegated = getattr(message, "parent_tool_use_id", None) is not None
                 if isinstance(message, AssistantMessage):
                     for block in message.content:
                         if isinstance(block, ToolUseBlock):
                             run.tool_calls[block.name] += 1
                             tool_names[block.id] = block.name
+                            if delegated:
+                                run.delegated_tool_calls += 1
+                            if block.name == DELEGATION_TOOL:
+                                brief = str((block.input or {}).get("prompt", "")).strip()
+                                run.briefs.append(brief)
+                                log.info("investigator dispatched: %s", brief[:160])
                             log.debug("tool: %s %s", block.name, block.input)
                 elif isinstance(message, ResultMessage):
-                    log.info(
-                        "Agent finished (%s): %s, %d URLs retrieved",
-                        message.subtype,
-                        run.research_summary(),
-                        len(run.retrieved_urls),
-                    )
+                    # Every subagent emits one of these too, and ResultMessage
+                    # carries no parent tag to tell them apart - so just keep the
+                    # last one and log the summary once, after the stream ends.
+                    result_subtype = message.subtype
                 for block in getattr(message, "content", None) or []:
                     use_id = getattr(block, "tool_use_id", None)
                     if use_id and _tool_result_failed(block):
                         run.tool_errors[tool_names.get(use_id, "unknown")] += 1
+        log.info(
+            "Agent finished (%s): %s, %d URLs retrieved",
+            result_subtype,
+            run.research_summary(),
+            len(run.retrieved_urls),
+        )
     except TimeoutError:
         run.error = f"investigation exceeded {cfg.timeout_seconds}s"
         log.warning("Fact-check timed out for mention %s", ctx.mention.id)

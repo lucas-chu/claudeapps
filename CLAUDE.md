@@ -111,7 +111,7 @@ cd checkclaude
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-pytest                                    # 63 tests, no network, no API keys
+pytest                                    # 78 tests, no network, no API keys
 python tests/smoke_agent.py               # real agent run, needs ANTHROPIC_API_KEY only
 python tests/smoke_agent.py "<claim>" "<question>"
 python main.py --once <post-url>          # check one post, print, don't post
@@ -128,8 +128,8 @@ without any X credentials.
 main.py       the loop: mention → context → agent → guard → reply
 x_client.py   listen_for_mentions() · get_post() · get_thread() · reply()
 context.py    build_context() · extract_links()
-agent.py      fact_check()  ← the Agent SDK lives here
-prompts.py    system instruction + objective + voice
+agent.py      fact_check() · build_options()  ← the Agent SDK lives here
+prompts.py    system instruction + objective + voice + investigator brief
 verdict.py    FactCheck model + response guard
 store.py      sqlite dedupe + follow-up memory
 config.py     env
@@ -139,6 +139,14 @@ The agent is given an objective, not a script. It ends when Claude calls
 `submit_verdict`, an in-process MCP tool whose JSON Schema is the verdict
 contract. `prompts.py` holds most of the product thinking and is the file worth
 reading first.
+
+A post with two or more independent claims is fanned out: the lead dispatches one
+`investigator` subagent per claim, in one batch, and synthesises their findings.
+Subagent messages arrive on the same `query()` stream tagged with
+`parent_tool_use_id`, which is why `_harvest_urls` still sees everything they
+fetched and the citation check survives the fan-out unchanged. `build_options()`
+is where the tool surface is assembled, so the safety boundary is a function you
+can assert on. `CHECKCLAUDE_FANOUT=false` runs the old single-agent path.
 
 ## Invariants — don't break these
 
@@ -157,7 +165,16 @@ These are the reason the thing is trustworthy. Each has tests.
    truncates the body instead.
 5. **The agent only searches and fetches.** `tools=["WebSearch", "WebFetch"]` —
    no Bash, no filesystem. It reads attacker-controlled text all day. Don't widen
-   this. Post content stays fenced in `<<< >>>` and labelled untrusted.
+   this. Post content stays fenced in `<<< >>>` and labelled untrusted. Fan-out
+   adds `Agent` to the lead only; investigators get search and fetch and nothing
+   else — no verdict tool, no delegation tool, so the tree is one level deep.
+6. **A sourced sub-claim never vouches for an unsourced one.** Each sub-claim's
+   citations are verified on their own, and one unsupported assertive sub-claim
+   downgrades the whole verdict. Pooling the source list would hide exactly the
+   case the citation check exists to catch.
+7. **Investigators never see post text.** The lead writes each brief in its own
+   words. Untrusted content stops at the one agent that knows it is untrusted
+   rather than being forwarded to three more.
 
 ## Environment notes
 

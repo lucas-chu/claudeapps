@@ -22,7 +22,12 @@ from context import CheckContext  # noqa: E402
 from verdict import guard, tweet_length  # noqa: E402
 from x_client import Post  # noqa: E402
 
-DEFAULT_CLAIM = "Data centers now consume 20% of US electricity."
+# Two independent claims in one sentence, so the default run exercises the
+# fan-out rather than the single-investigator path.
+DEFAULT_CLAIM = (
+    "Data centers now consume 20% of US electricity, and Ireland's data centers "
+    "use more power than all of its urban homes combined."
+)
 
 
 async def main() -> int:
@@ -59,6 +64,12 @@ async def main() -> int:
     print(f"confidence: {reply.fact_check.confidence}")
     print(f"research:   {run.research_summary()}")
     print(f"urls seen:  {len(run.retrieved_urls)}")
+    for i, brief in enumerate(run.briefs, 1):
+        print(f"brief {i}:    {' '.join(brief.split())[:150]}")
+    for sub in reply.fact_check.sub_claims:
+        print(f"sub-claim:  [{sub.verdict}] {sub.claim}")
+        for source in sub.sources:
+            print(f"            {source.name} {source.url}")
     if run.tool_errors.get("WebFetch"):
         print(
             "\nNOTE: WebFetch failed here, so the agent worked from search-result\n"

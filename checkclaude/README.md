@@ -73,7 +73,7 @@ checkclaude/
 ├── x_client.py   # listen_for_mentions() · get_post() · get_thread() · reply()
 ├── context.py    # build_context() · extract_links()
 ├── agent.py      # fact_check()  ← the Agent SDK lives here
-├── prompts.py    # system instruction + objective
+├── prompts.py    # system instruction + objective + investigator brief
 ├── verdict.py    # verdict model + response guard
 ├── store.py      # sqlite dedupe + follow-up memory
 └── config.py     # env
@@ -97,13 +97,57 @@ call. What we *do* constrain is the shape of the answer: the run ends when Claud
 calls `submit_verdict`, an in-process MCP tool whose JSON Schema is the verdict
 contract (verdict enum, claim, reply body, sources, confidence, internal notes).
 
+### One investigator per claim
+
+"OpenAI has 10M enterprise customers and is losing $20B a year" is two
+investigations wearing one sentence. A single agent researches them one after the
+other in one context, and the second one gets the attention the first left over.
+
+So when the lead agent decomposes a post into two or more independent claims, it
+dispatches an **investigator subagent per claim, in one batch, and they research
+in parallel**. Each investigator is a researcher with the same web tools and none
+of the lead's context - it sees only the brief it was written. It reports what the
+evidence says and the URLs it opened; it does not issue a verdict and does not
+write the reply. The lead weighs the findings against each other and forms the
+single answer.
+
+```
+                     lead agent
+                  decomposes the post
+                          │
+        ┌─────────────────┼─────────────────┐
+        ▼                 ▼                 ▼
+  investigator      investigator      investigator
+  "share of US      "revenue growth   "the 2030
+   electricity"      in FY24"          projection"
+        │                 │                 │
+        └─────────────────┼─────────────────┘
+                          ▼
+              lead synthesises → submit_verdict
+```
+
+Two details that matter more than the parallelism:
+
+- **The brief is written by the lead, in its own words.** Investigators never see
+  the post. Anything hostile embedded in the text stops at the agent that already
+  knows it is untrusted, instead of being forwarded to three more agents.
+- **Sources are attributed per sub-claim**, and each sub-claim's citations are
+  verified on their own. A well-sourced half cannot vouch for an unsourced one -
+  see the guard table below.
+
+Fan-out costs a minute or two, so a single narrow claim is researched directly.
+`CHECKCLAUDE_FANOUT=false` restores the single-agent path.
+
 Two properties are enforced structurally rather than by asking nicely:
 
 - **Claude can only search and fetch.** `tools=["WebSearch", "WebFetch"]` removes
   every other built-in — no Bash, no filesystem. The agent reads
   attacker-controlled text off the open internet all day; there is nothing for a
   prompt injection to reach for. Post text is additionally fenced in `<<< >>>`
-  and labelled as untrusted data.
+  and labelled as untrusted data. Delegation adds exactly one tool to the lead,
+  and investigators get `["WebSearch", "WebFetch"]` and nothing else — no verdict
+  tool, and no delegation tool of their own, so the fan-out is one level deep by
+  construction.
 - **Citations are checked against reality.** Every URL that comes back from a
   tool is recorded during the run. The guard drops any cited URL that never
   appeared in tool output — deliberately ignoring URLs the model merely *wrote*,
@@ -119,6 +163,7 @@ is mechanical, not model-mediated:
 | Unknown verdict | Falls back to `UNVERIFIABLE` |
 | Cited URL never retrieved | Stripped, and logged loudly |
 | Assertive verdict with no surviving source | **Downgraded to `UNVERIFIABLE`** |
+| Any assertive **sub-claim** with no surviving source | **Downgraded to `UNVERIFIABLE`**, and the prose says which part |
 | Reply too long | Degrades in order: two links → one link → publisher names → truncate the prose at a sentence boundary |
 
 There is deliberately no "drop the sources" rung — an unattributed reply is worse
@@ -224,6 +269,9 @@ interval with `since_id`, which works on every tier and costs a handful of reads
 per minute. It trades a few seconds of latency for being demoable without a
 $5,000/month subscription. Flip one env var if you have Pro.
 
+`CHECKCLAUDE_FANOUT=false` turns off the investigator fan-out and runs the whole
+check in one agent — quicker and cheaper, weaker on multi-part claims.
+
 Replies are capped at 280 characters by default. If the bot account has Premium,
 set `MAX_POST_CHARS=25000` and the guard will stop compressing.
 
@@ -246,16 +294,17 @@ source URLs, and any guard warnings.
 ## Tests
 
 ```bash
-pytest                          # 63 tests, no network, no API keys
+pytest                          # 78 tests, no network, no API keys
 python tests/smoke_agent.py     # real end-to-end agent run, no X API needed
 ```
 
 The suite covers the parts that must not fail open: citation stripping, the
 no-evidence downgrade, the length-degradation ladder in both reply styles,
 trigger detection across all the accepted phrasings, thread walking,
-prompt-injection fencing, restart-safe dedupe, and the negative cases in URL
+prompt-injection fencing, restart-safe dedupe, the negative cases in URL
 harvesting — model-authored text and `submit_verdict`'s own claimed sources must
-never self-certify.
+never self-certify — and the fan-out rules: a sourced sub-claim may not vouch for
+an unsourced one, and an investigator's tool surface may not exceed the lead's.
 
 `smoke_agent.py` runs the real Agent SDK against a synthetic post, so you can
 exercise the whole research → verdict → guard path before pointing it at X. It
