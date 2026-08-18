@@ -26,43 +26,23 @@ export function isHeic(file: File): boolean {
 }
 
 /**
- * Converts a HEIC/HEIF file into a JPEG by POSTing its raw bytes to the local
- * server, which shells out to macOS's own `sips` decoder.
+ * What the user is told when they drop an iPhone photo in.
  *
- * This replaced an in-browser WASM decoder (heic2any) that rejected real
- * iPhone photos with "ERR_LIBHEIF format not supported" — its bundled
- * libheif is too old for modern Apple HEICs. `sips` is Apple's own decoder,
- * so it handles them natively, and converting server-side avoids shipping a
- * 1.3MB WASM dependency for a decode the browser can never do anyway.
+ * Claude Canvas runs entirely in the browser with no server of its own, and no
+ * browser decodes HEIC in an `<img>`. Conversion used to shell out to macOS's
+ * own `sips` via a local server; with the app deployed as static files there
+ * is no such server to call. The in-browser WASM decoder that predated `sips`
+ * is not a way back — its bundled libheif rejected real iPhone photos with
+ * "ERR_LIBHEIF format not supported".
+ *
+ * So this fails loudly and tells the user the one-step fix, rather than
+ * failing obscurely somewhere in the decode path.
  */
-async function heicToJpegFile(file: File): Promise<File> {
-  let response: Response
-  try {
-    response = await fetch('/api/convert-image', {
-      method: 'POST',
-      headers: { 'content-type': file.type || 'application/octet-stream' },
-      body: file,
-    })
-  } catch (err) {
-    throw new Error(`could not reach conversion server: ${(err as Error).message}`)
-  }
+export const HEIC_UNSUPPORTED_MESSAGE =
+  'HEIC photos can’t be read in the browser. Export the photo as JPEG or PNG and try again.'
 
-  if (!response.ok) {
-    // The server names a real reason (e.g. "HEIC conversion requires macOS")
-    // in its JSON body; fall back to the status code if that body is missing
-    // or malformed so the failure is still diagnosable.
-    let detail = `server returned ${response.status}`
-    try {
-      const body = await response.json()
-      if (body && typeof body.error === 'string' && body.error) detail = body.error
-    } catch {
-      // Non-JSON error body: keep the status-code fallback above.
-    }
-    throw new Error(detail)
-  }
-
-  const blob = await response.blob()
-  return new File([blob], file.name.replace(/\.hei[cf]$/i, '.jpg'), { type: 'image/jpeg' })
+function heicToJpegFile(_file: File): Promise<File> {
+  return Promise.reject(new Error(HEIC_UNSUPPORTED_MESSAGE))
 }
 
 /**

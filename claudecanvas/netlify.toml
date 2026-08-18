@@ -1,0 +1,14 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# The user's API key lives in this page's storage, so keep the page out of
+# frames and out of referrer headers. No CSP here: Excalidraw needs blob:
+# workers and the app talks to api.anthropic.com, so a wrong policy would
+# break the app silently rather than protect it.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"
+    X-Frame-Options = "DENY"
