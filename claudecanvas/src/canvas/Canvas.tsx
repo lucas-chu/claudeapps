@@ -293,6 +293,7 @@ export default function Canvas({
           viewport={vp}
           selected={state.selection.includes(b.id)}
           shadowText={state.shadow[b.id]}
+          thinkingText={state.thinking[b.id]}
           dispatch={dispatch}
           onRetry={onRetry}
           onRun={onRun}

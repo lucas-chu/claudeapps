@@ -22,6 +22,7 @@ export function sanitize(state: State): State {
     ...state,
     selection: [],
     shadow: {},
+    thinking: {},
     boxes: state.boxes.map((b) => ({
       ...b,
       status: b.status === 'streaming' ? 'idle' : b.status,
@@ -69,7 +70,7 @@ export function load(): State | null {
     if (!Array.isArray(parsed.boxes)) return null
     // A save from before the chat panel became resizable has no chatWidth at
     // all - default it rather than resurrecting `undefined` into state.
-    return { ...parsed, selection: [], shadow: {}, chatWidth: parsed.chatWidth ?? DEFAULT_CHAT_WIDTH }
+    return { ...parsed, selection: [], shadow: {}, thinking: {}, chatWidth: parsed.chatWidth ?? DEFAULT_CHAT_WIDTH }
   } catch {
     return null
   }

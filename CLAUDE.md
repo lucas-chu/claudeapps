@@ -29,7 +29,7 @@ cd claudecanvas
 npm install
 
 npm run dev               # Vite on :5173. That's the whole stack.
-npm test                  # 257 unit tests, no network, no API key
+npm test                  # 268 unit tests, no network, no API key
 npm run typecheck
 npm run build             # -> dist/, deployable to any static host
 npm run preview           # serve the production build
@@ -49,6 +49,7 @@ src/canvas/           geometry.ts · Canvas · TextBox · DrawingBox (Excalidraw
 src/chat/ChatPanel.tsx  the thread — the same one the canvas prompts against
 src/state/            types · store (reducer) · history (undo) · context (request
                       assembly) · persist (localStorage) · apiKey (the user's key)
+                      · settings (effort + speed)
 src/useGeneration.ts  every generation path funnels through here
 ```
 
@@ -76,9 +77,23 @@ Each has tests.
    `api.anthropic.com`, never log or render it — `maskApiKey` exists for that.
    This *replaced* the old server-side-key invariant when the app went static;
    don't reintroduce a backend that receives other people's keys.
-5. **Model is `claude-opus-5`, and the sampling params stay off.** Don't send
-   `temperature`, `top_p`, `top_k`, or a `thinking` param. Disabling thinking on
-   opus-5 makes tool calls leak as plain text — web search silently never runs.
+5. **Model is `claude-opus-5`; sampling params stay off and thinking stays on.**
+   Never send `temperature`, `top_p` or `top_k`. Thinking *is* sent, as
+   `{type: 'adaptive', display: 'summarized'}` — the summary is what the box
+   shows while it streams, since `display` defaults to `omitted` and a long
+   think otherwise looks like a hang. Never set `{type: 'disabled'}`: that
+   makes tool calls leak into visible text, so web search silently never runs.
+6. **Paused turns must be resumed.** Web search runs a server-side sampling
+   loop; hitting its limit returns a *successful* message with
+   `stop_reason: 'pause_turn'` and a partial answer, and the SDK does not
+   resume for you. `generate()` loops up to `MAX_CONTINUATIONS`, accumulating
+   citations across rounds, and reports truncation rather than passing a
+   cut-off answer off as complete.
+7. **Effort and speed are the user's money.** `auto` sends no `effort` at all
+   so the API default applies — never send the literal string `'auto'`. Fast
+   mode is premium-priced and opt-in, goes through the beta endpoint with the
+   `fast-mode-2026-02-01` flag, and falls back to standard on its separate
+   429 rather than losing the answer.
 
 ## Environment notes
 

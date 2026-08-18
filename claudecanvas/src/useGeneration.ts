@@ -108,6 +108,8 @@ export function useGeneration(
   dispatch: (a: Action) => void,
   viewportSize: { w: number; h: number },
   onBusyBox?: (boxId: string) => void,
+  /** Surfaces an informational fallback (e.g. fast mode was rate limited). */
+  onNotice?: (message: string) => void,
 ) {
   // Authoritative, synchronously-updated bookkeeping for what's running.
   // Mutated the instant a generation starts/ends (never batched behind a
@@ -144,8 +146,10 @@ export function useGeneration(
   // so it's stashed in a ref the same way, letting runCanvasPrompt always
   // call the latest version without needing it in a dependency array.
   const onBusyBoxRef = useRef(onBusyBox)
+  const onNoticeRef = useRef(onNotice)
   useEffect(() => {
     onBusyBoxRef.current = onBusyBox
+    onNoticeRef.current = onNotice
   })
 
   function placeNewBox(prompt: string): Box {
@@ -266,6 +270,10 @@ export function useGeneration(
           finalText += t
           pacer!.push(t)
         },
+        onThinking: (summary) => {
+          dispatch({ type: 'setThinking', id: targetId, summary })
+        },
+        onNotice: (message) => onNoticeRef.current?.(message),
         onSources: (sources) => {
           dispatch({ type: 'setBoxSources', id: targetId, sources })
           dispatch({ type: 'updateTurn', id: turnId, patch: { sources } })
@@ -274,12 +282,14 @@ export function useGeneration(
           // Flush before settling so nothing already received is left
           // half-revealed behind the pacer.
           pacer!.flush()
+          dispatch({ type: 'clearThinking', id: targetId })
           if (inPlace) dispatch({ type: 'rollbackShadow', id: targetId, error: message })
           else dispatch({ type: 'setBoxError', id: targetId, error: message })
           dispatch({ type: 'updateTurn', id: turnId, patch: { status: 'error', error: message } })
         },
         onDone: () => {
           pacer!.flush()
+          dispatch({ type: 'clearThinking', id: targetId })
           if (inPlace) dispatch({ type: 'commitShadow', id: targetId })
           else dispatch({ type: 'setBoxStatus', id: targetId, status: 'idle' })
           dispatch({ type: 'updateTurn', id: turnId, patch: { status: undefined } })

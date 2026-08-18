@@ -90,7 +90,19 @@ the canvas with **Send to canvas**; the resulting box keeps a `from chat ↗` ch
 that scrolls the panel back to the turn it came from.
 
 **Web search** runs when a question needs current information — not on every
-prompt. Answers that used it show source chips.
+prompt. Answers that used it show source chips (four, then "+N more"). Long
+research runs are resumed automatically when the API pauses them, so an answer
+doesn't stop half-finished.
+
+**Speed and depth.** The toolbar carries an effort selector and a **Fast**
+toggle. Effort defaults to **Auto**, which sends no effort setting at all and
+lets the API decide; raising it buys better answers for more tokens. Fast mode
+runs up to 2.5x faster output but is billed at a premium rate, so it is off by
+default — and if its separate rate limit is hit, the answer completes at
+standard speed rather than failing.
+
+While Claude thinks, the box shows a running summary of its reasoning instead
+of a blank pulse.
 
 **Images.** Paste, drag a file in, or use **Add image**. Select an image box and
 prompt to ask about it. iPhone HEIC photos are not supported — no browser can
@@ -169,7 +181,7 @@ Two things are load-bearing and easy to break:
 ## Checks
 
 ```bash
-npm test        # 257 unit tests
+npm test        # 268 unit tests
 npm run build
 npm run typecheck
 ```
@@ -192,4 +204,4 @@ streaming and vision were verified by driving a real browser against the real AP
   then only as durable as the tab.
 - **Chat images aren't supported** — vision works from canvas selection only.
 - Adaptive thinking means several seconds can pass before the first token. The
-  pulsing indicator exists so that pause doesn't read as a hang.
+  streamed reasoning summary exists so that pause doesn't read as a hang.

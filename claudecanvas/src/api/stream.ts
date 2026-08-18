@@ -3,9 +3,18 @@ import type { ApiMessage } from '../state/context'
 import type { Source } from '../state/types'
 import { extractSources } from './sources'
 import { loadApiKey } from '../state/apiKey'
+import { loadSettings, apiEffort } from '../state/settings'
 
 export type StreamHandlers = {
   onDelta: (text: string) => void
+  /**
+   * Running summary of Claude's reasoning, if the model produced any.
+   * Adaptive thinking means several seconds can pass before the first answer
+   * token; without this the user stares at a pulsing dot and calls it slow.
+   */
+  onThinking?: (summary: string) => void
+  /** Reports a fallback the user should know about (e.g. fast mode declined). */
+  onNotice?: (message: string) => void
   onSources: (sources: Source[]) => void
   onError: (message: string) => void
   onDone: () => void
@@ -48,6 +57,28 @@ export const MAX_CONTINUATIONS = 6
 
 export const TRUNCATED_MESSAGE =
   'This answer was still going after several rounds of research and was cut short.'
+
+export const FAST_FALLBACK_MESSAGE =
+  'Fast mode was rate limited — this answer ran at standard speed.'
+
+/**
+ * Fast mode is a research preview on opus-5, billed at a premium rate and
+ * carrying its own rate limit separate from standard capacity. It therefore
+ * goes through the beta endpoint and needs this flag; see FAST_FALLBACK_MESSAGE
+ * for what happens when that separate limit is hit.
+ */
+const FAST_MODE_BETA = 'fast-mode-2026-02-01'
+
+/**
+ * Reasoning is streamed as a summary, never raw. `display` defaults to
+ * `omitted` on opus-5, which is what made a long think look like a hang.
+ * Thinking itself stays ON: disabling it on opus-5 makes tool calls leak into
+ * the visible text, so web search would silently never run.
+ */
+const THINKING: Anthropic.Messages.ThinkingConfigParam = {
+  type: 'adaptive',
+  display: 'summarized',
+}
 
 /**
  * The browser talks to the Anthropic API directly, so the user's key is the
@@ -116,21 +147,65 @@ export async function generate(
     const sources: Source[] = []
     const seenUrls = new Set<string>()
 
+    const settings = loadSettings()
+    const effort = apiEffort(settings.effort)
+    // Latched, not re-read: once a request falls back to standard speed, the
+    // rest of a paused-and-resumed answer stays there rather than re-trying
+    // fast mode on every continuation.
+    let useFast = settings.speed === 'fast'
+
+    // Search is available, not forced — the model calls it only when the
+    // question needs current information.
+    const paramsFor = (convo: Anthropic.Messages.MessageParam[]) => ({
+      model: MODEL,
+      max_tokens: MAX_TOKENS,
+      messages: convo,
+      tools: [webSearchTool],
+      thinking: THINKING,
+      // Spread, never `effort: undefined`: "auto" must send no effort at all,
+      // so whatever the API's own default is applies.
+      ...(effort ? { output_config: { effort } } : {}),
+    })
+
+    /**
+     * One request. The two endpoints are kept in separate branches rather
+     * than behind a shared variable because the beta and stable stream types
+     * form a union whose `.on()` overloads aren't mutually callable.
+     */
+    const runOnce = async (convo: Anthropic.Messages.MessageParam[], fast: boolean) => {
+      if (fast) {
+        const st = client.beta.messages.stream({
+          ...paramsFor(convo),
+          speed: 'fast',
+          betas: [FAST_MODE_BETA],
+        })
+        st.on('text', (text) => handlers.onDelta(text))
+        // The snapshot, not the delta: the UI shows a running summary, so
+        // re-accumulating deltas here would duplicate the SDK's own work.
+        st.on('thinking', (_delta, snapshot) => handlers.onThinking?.(snapshot))
+        return await st.finalMessage()
+      }
+      const st = client.messages.stream(paramsFor(convo))
+      st.on('text', (text) => handlers.onDelta(text))
+      st.on('thinking', (_delta, snapshot) => handlers.onThinking?.(snapshot))
+      return await st.finalMessage()
+    }
+
     for (let round = 0; ; round++) {
-      const stream = client.messages.stream({
-        model: MODEL,
-        max_tokens: MAX_TOKENS,
-        messages: convo,
-        // No `effort` override and no `thinking` param: adaptive thinking is the
-        // default on opus-5, and disabling it makes tool calls leak as plain text
-        // so web search would silently never run. Search is available, not
-        // forced — the model calls it only when the question needs it.
-        tools: [webSearchTool],
-      })
-
-      stream.on('text', (text) => handlers.onDelta(text))
-
-      const final = await stream.finalMessage()
+      let final
+      try {
+        final = await runOnce(convo, useFast)
+      } catch (err) {
+        // Fast mode is a research preview with its own rate limit, separate
+        // from standard capacity. Being turned away from it should cost the
+        // user a slower answer, never the answer itself.
+        if (!useFast) throw err
+        const status = (err as { status?: number })?.status
+        if (status !== 429 && status !== 400 && status !== 404) throw err
+        useFast = false
+        handlers.onNotice?.(FAST_FALLBACK_MESSAGE)
+        final = await runOnce(convo, false)
+      }
 
       // A refusal is a successful HTTP 200 with empty or partial content. Report
       // it as an error rather than leaving an empty box on screen.
@@ -156,7 +231,15 @@ export async function generate(
         return
       }
 
-      convo = [...convo, { role: 'assistant', content: final.content }]
+      // The beta and stable SDKs describe content with different (structurally
+      // wider) block unions, even though the wire format is identical — so a
+      // fast-mode message can't be assigned back into the stable param type
+      // without this. Only the assistant turn we just received is re-sent, so
+      // it is exactly what the API produced.
+      convo = [
+        ...convo,
+        { role: 'assistant', content: final.content as Anthropic.Messages.ContentBlockParam[] },
+      ]
     }
 
     if (sources.length > 0) handlers.onSources(sources)

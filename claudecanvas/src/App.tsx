@@ -14,6 +14,9 @@ import { blocksToText } from './state/types'
 import { fileToDownscaledDataUrl, sortImageCandidates, isImageFile } from './lib/imagePaste'
 import ApiKeyDialog from './ApiKeyDialog'
 import { loadApiKey } from './state/apiKey'
+import {
+  loadSettings, saveSettings, EFFORT_LABELS, type Effort, type Settings,
+} from './state/settings'
 
 const NEW_BOX = { w: 360, h: 260 }
 // Drawing needs more room than a text box to be usable.
@@ -85,6 +88,17 @@ export default function App() {
   // ordinary settings dialog reachable from the toolbar.
   const [hasKey, setHasKey] = useState(() => loadApiKey() !== null)
   const [keyDialogOpen, setKeyDialogOpen] = useState(() => loadApiKey() === null)
+
+  // Effort and speed are spending decisions on the visitor's own key, so they
+  // are explicit controls rather than something the app picks for them.
+  const [settings, setSettings] = useState<Settings>(loadSettings)
+  const updateSettings = useCallback((patch: Partial<Settings>) => {
+    setSettings((prev) => {
+      const next = { ...prev, ...patch }
+      saveSettings(next)
+      return next
+    })
+  }, [])
   // Latches once autosave starts failing (e.g. localStorage quota exceeded
   // by a canvas full of images), so the toast fires once per failure streak
   // instead of every 500ms, and clears again the moment a save succeeds.
@@ -98,7 +112,11 @@ export default function App() {
   // A prompt that targets a box already mid-generation is declined rather
   // than queued or interleaved (see useGeneration's same-box guard) — this
   // is how the user finds out why nothing happened.
-  const gen = useGeneration(state, dispatch, size, () => showToast(BOX_BUSY_MESSAGE))
+  const gen = useGeneration(
+    state, dispatch, size,
+    () => showToast(BOX_BUSY_MESSAGE),
+    (message) => showToast(message),
+  )
   useEffect(() => () => {
     if (toastTimer.current) clearTimeout(toastTimer.current)
   }, [])
@@ -453,6 +471,27 @@ export default function App() {
             title="Zoom to fit (⌘⇧1 / Ctrl+Shift+1 / ⇧1)"
           >
             Fit
+          </button>
+          <select
+            className="effort-select"
+            value={settings.effort}
+            onChange={(e) => updateSettings({ effort: e.target.value as Effort })}
+            title="How hard Claude thinks. Higher costs more tokens; Auto leaves it to the API."
+          >
+            {(Object.keys(EFFORT_LABELS) as Effort[]).map((e) => (
+              <option key={e} value={e}>
+                {EFFORT_LABELS[e]}
+              </option>
+            ))}
+          </select>
+          <button
+            className={`fast-btn${settings.speed === 'fast' ? ' is-on' : ''}`}
+            onClick={() =>
+              updateSettings({ speed: settings.speed === 'fast' ? 'standard' : 'fast' })
+            }
+            title="Fast mode: up to 2.5x faster output, billed at a premium rate"
+          >
+            Fast
           </button>
           <button
             className="key-btn"

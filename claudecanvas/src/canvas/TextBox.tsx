@@ -35,6 +35,8 @@ type Props = {
   viewport: Viewport
   selected: boolean
   shadowText?: string
+  /** Running reasoning summary, shown only while this box streams. */
+  thinkingText?: string
   dispatch: (a: Action) => void
   onDragStart: (e: React.PointerEvent, id: string) => void
   onResizeStart: (e: React.PointerEvent, id: string, handle: Handle) => void
@@ -217,7 +219,7 @@ function measureCaretOffset(el: HTMLTextAreaElement, index: number): { top: numb
  * (see `mapBox` in state/store.ts).
  */
 function TextBox({
-  box, viewport, selected, shadowText, dispatch,
+  box, viewport, selected, shadowText, thinkingText, dispatch,
   onDragStart, onResizeStart, onSelect, onRetry, onRun,
   autoEdit, onAutoEditConsumed,
 }: Props) {
@@ -566,13 +568,20 @@ function TextBox({
             )}
           </div>
         ) : (
-          <div className="box-markdown">
-            <TaskActionsContext.Provider value={taskActions}>
-              <ReactMarkdown remarkPlugins={[remarkBreaks, remarkGfm]} components={markdownComponents}>
-                {text}
-              </ReactMarkdown>
-            </TaskActionsContext.Provider>
-          </div>
+          <>
+            {box.status === 'streaming' && thinkingText && (
+              <div className="box-thinking" aria-live="polite">
+                {thinkingText}
+              </div>
+            )}
+            <div className="box-markdown">
+              <TaskActionsContext.Provider value={taskActions}>
+                <ReactMarkdown remarkPlugins={[remarkBreaks, remarkGfm]} components={markdownComponents}>
+                  {text}
+                </ReactMarkdown>
+              </TaskActionsContext.Provider>
+            </div>
+          </>
         )}
       </div>
 
