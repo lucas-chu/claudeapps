@@ -10,9 +10,13 @@ venv/
 # from a directory that was opened in Finder.
 .DS_Store
 
-# Runtime logs. checkclaude/bot.log is deliberately kept for now — it is a
-# captured run, not incidental output — so it is excepted rather than removed.
+# Runtime logs. No exception for checkclaude/bot.log: the copy that was
+# committed logged requests_oauthlib at DEBUG, which writes the full signed
+# Authorization header — the X app's oauth_consumer_key, the account's
+# oauth_token, and session cookies — on every polling request. It has since
+# been deleted from the tree, and re-admitting the path lets the next run put
+# it straight back. To keep a captured run for the write-up, commit a scrubbed
+# excerpt under a different name, or capture at INFO rather than DEBUG.
 *.log
-!checkclaude/bot.log
 .vercel
 .env*
