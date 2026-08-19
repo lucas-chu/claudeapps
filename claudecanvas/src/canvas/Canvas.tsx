@@ -17,11 +17,12 @@ type Drag =
   | { kind: 'marquee'; from: Point; to: Point }
 
 export default function Canvas({
-  state, dispatch, onRetry, autoEditId, onAutoEditConsumed, onDropImages,
+  state, dispatch, onRetry, onRun, autoEditId, onAutoEditConsumed, onDropImages,
 }: {
   state: State
   dispatch: (a: Action) => void
   onRetry: (id: string) => void
+  onRun: (id: string) => void
   autoEditId?: string | null
   onAutoEditConsumed?: () => void
   /** Called with the dropped image files and the world point under the cursor. */
@@ -292,8 +293,10 @@ export default function Canvas({
           viewport={vp}
           selected={state.selection.includes(b.id)}
           shadowText={state.shadow[b.id]}
+          thinkingText={state.thinking[b.id]}
           dispatch={dispatch}
           onRetry={onRetry}
+          onRun={onRun}
           autoEdit={b.id === autoEditId}
           onAutoEditConsumed={onAutoEditConsumed}
           onSelect={handleSelect}

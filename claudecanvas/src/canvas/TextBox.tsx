@@ -19,6 +19,16 @@ import {
 } from '../lib/markdownActions'
 
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
+
+/**
+ * Source chips shown before the list collapses behind "+N more".
+ *
+ * A research-heavy answer can cite fifty pages. Rendering them all made the
+ * chip list taller than the box it belonged to and spilled it across the
+ * canvas, burying other boxes. Collapsing keeps the citation visible — which
+ * is the point of showing sources at all — without letting it dominate.
+ */
+export const COLLAPSED_SOURCES = 4
 export type Handle = (typeof HANDLES)[number]
 
 type Props = {
@@ -26,11 +36,15 @@ type Props = {
   viewport: Viewport
   selected: boolean
   shadowText?: string
+  /** Running reasoning summary, shown only while this box streams. */
+  thinkingText?: string
   dispatch: (a: Action) => void
   onDragStart: (e: React.PointerEvent, id: string) => void
   onResizeStart: (e: React.PointerEvent, id: string, handle: Handle) => void
   onSelect: (e: React.PointerEvent, id: string) => void
   onRetry: (id: string) => void
+  /** Runs this box's own text as a prompt, answering into a new box. */
+  onRun: (id: string) => void
   /** True for exactly one render after this box is created via "+ New box". */
   autoEdit?: boolean
   /** Called once autoEdit has been acted on, so the parent can clear it. */
@@ -206,8 +220,8 @@ function measureCaretOffset(el: HTMLTextAreaElement, index: number): { top: numb
  * (see `mapBox` in state/store.ts).
  */
 function TextBox({
-  box, viewport, selected, shadowText, dispatch,
-  onDragStart, onResizeStart, onSelect, onRetry,
+  box, viewport, selected, shadowText, thinkingText, dispatch,
+  onDragStart, onResizeStart, onSelect, onRetry, onRun,
   autoEdit, onAutoEditConsumed,
 }: Props) {
   const [editing, setEditing] = useState(false)
@@ -215,6 +229,12 @@ function TextBox({
   const [titleDraft, setTitleDraft] = useState('')
   const [sel, setSel] = useState<{ start: number; end: number } | null>(null)
   const [toolbarPos, setToolbarPos] = useState<{ top: number; left: number }>(FALLBACK_TOOLBAR_POS)
+  const [sourcesExpanded, setSourcesExpanded] = useState(false)
+
+  // Only text boxes with something in them can be run; an image or drawing has
+  // no prompt to send, and a box mid-stream is not finished being written.
+  const canRun =
+    box.status !== 'streaming' && blocksToText(box.blocks).trim().length > 0
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const p = worldToScreen({ x: box.x, y: box.y }, viewport)
@@ -447,6 +467,17 @@ function TextBox({
           </span>
         )}
 
+        {canRun && (
+          <button
+            className="box-run"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => onRun(box.id)}
+            title="Run this box as a prompt"
+          >
+            ▶
+          </button>
+        )}
+
         <button
           className="box-delete"
           onPointerDown={(e) => e.stopPropagation()}
@@ -565,13 +596,20 @@ function TextBox({
             )}
           </div>
         ) : (
-          <div className="box-markdown">
-            <TaskActionsContext.Provider value={taskActions}>
-              <ReactMarkdown remarkPlugins={[remarkBreaks, remarkGfm]} components={markdownComponents}>
-                {text}
-              </ReactMarkdown>
-            </TaskActionsContext.Provider>
-          </div>
+          <>
+            {box.status === 'streaming' && thinkingText && (
+              <div className="box-thinking" aria-live="polite">
+                {thinkingText}
+              </div>
+            )}
+            <div className="box-markdown">
+              <TaskActionsContext.Provider value={taskActions}>
+                <ReactMarkdown remarkPlugins={[remarkBreaks, remarkGfm]} components={markdownComponents}>
+                  {text}
+                </ReactMarkdown>
+              </TaskActionsContext.Provider>
+            </div>
+          </>
         )}
       </div>
 
@@ -591,12 +629,23 @@ function TextBox({
       )}
 
       {box.sources && box.sources.length > 0 && (
-        <div className="box-sources">
-          {box.sources.map((s) => (
+        <div className={`box-sources${sourcesExpanded ? ' is-expanded' : ''}`}>
+          {(sourcesExpanded ? box.sources : box.sources.slice(0, COLLAPSED_SOURCES)).map((s) => (
             <a key={s.url} href={s.url} target="_blank" rel="noreferrer" title={s.url}>
               {s.title}
             </a>
           ))}
+          {box.sources.length > COLLAPSED_SOURCES && (
+            <button
+              className="box-sources-more"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => setSourcesExpanded((v) => !v)}
+            >
+              {sourcesExpanded
+                ? 'Show fewer'
+                : `+${box.sources.length - COLLAPSED_SOURCES} more`}
+            </button>
+          )}
         </div>
       )}
 

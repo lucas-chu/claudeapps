@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sanitizeTitle, describeApiError } from './stream'
+import { sanitizeTitle, describeApiError, MAX_CONTINUATIONS, TRUNCATED_MESSAGE } from './stream'
 
 describe('sanitizeTitle', () => {
   it('keeps a plain title unchanged', () => {
@@ -59,5 +59,20 @@ describe('describeApiError', () => {
 
   it('always produces something printable', () => {
     expect(describeApiError({})).toBe('Generation failed.')
+  })
+})
+
+describe('pause_turn continuation contract', () => {
+  // Web search runs a server-side sampling loop; when it hits its iteration
+  // limit the API returns a *successful* message with stop_reason
+  // "pause_turn" and a partial answer. Treating that as finished is what made
+  // research-heavy questions stop mid-sentence, so these pin the contract.
+  it('caps continuations so a pathological question cannot loop forever', () => {
+    expect(MAX_CONTINUATIONS).toBeGreaterThan(0)
+    expect(Number.isFinite(MAX_CONTINUATIONS)).toBe(true)
+  })
+
+  it('has a message for a run that exhausts the cap, rather than passing it off as complete', () => {
+    expect(TRUNCATED_MESSAGE).toMatch(/cut short/i)
   })
 })

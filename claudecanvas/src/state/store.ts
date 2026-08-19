@@ -21,6 +21,11 @@ export type State = {
   turns: Turn[]
   /** In-flight rewrite text, keyed by box id. Never rendered as box content. */
   shadow: Record<string, string>
+  /**
+   * Per-box running summary of Claude's reasoning while it streams. Transient
+   * like `shadow`: never persisted, and cleared the moment a box settles.
+   */
+  thinking: Record<string, string>
   /** Chat panel width in px, drag-resizable (see ChatPanel.tsx). Persisted
    * but not undoable - like viewport, resizing the panel isn't an edit to
    * the canvas content. */
@@ -33,6 +38,7 @@ export const initialState: State = {
   viewport: { x: 0, y: 0, zoom: 1 },
   turns: [],
   shadow: {},
+  thinking: {},
   chatWidth: DEFAULT_CHAT_WIDTH,
 }
 
@@ -68,6 +74,8 @@ export type Action = (
   | { type: 'appendShadow'; id: string; text: string }
   | { type: 'commitShadow'; id: string }
   | { type: 'rollbackShadow'; id: string; error: string }
+  | { type: 'setThinking'; id: string; summary: string }
+  | { type: 'clearThinking'; id: string }
   | { type: 'addTurn'; turn: Turn }
   | { type: 'updateTurn'; id: string; patch: Partial<Turn> }
   | { type: 'appendTurnDelta'; id: string; text: string }
@@ -203,6 +211,14 @@ export function reducer(state: State, action: Action): State {
         title: action.title,
         titleEdited: true,
       }))
+
+    case 'setThinking':
+      return { ...state, thinking: { ...state.thinking, [action.id]: action.summary } }
+
+    case 'clearThinking': {
+      const { [action.id]: _dropThinking, ...thinking } = state.thinking
+      return { ...state, thinking }
+    }
 
     case 'beginShadow':
       return {
