@@ -1,6 +1,6 @@
-# anthropic-interview
+# claudeapps
 
-Three projects on one spine — the same idea handed to Claude three ways.
+Apps built on Claude — the same idea handed to it three ways.
 
 | | Claude… | Project | |
 |---|---|---|---|

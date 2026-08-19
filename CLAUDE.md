@@ -1,4 +1,4 @@
-# anthropic-interview
+# claudeapps
 
 Take-home: three projects on one spine — **Messages API** (Claude responds) →
 **Agent SDK** (Claude investigates) → **Managed Agents** (Claude persists).
