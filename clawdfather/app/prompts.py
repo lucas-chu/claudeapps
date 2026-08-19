@@ -130,6 +130,55 @@ LIST_TEAMMATES_TOOL = {
     "input_schema": {"type": "object", "properties": {}},
 }
 
+MESSAGE_TEAMMATE_TOOL = {
+    "type": "custom",
+    "name": "message_teammate",
+    "description": (
+        "Loop in another hired teammate by name. They answer visibly in this "
+        "same Slack thread, under their own name, and you get their reply back "
+        "as this tool's result so you can use it in your own answer. Use this "
+        "when a question is squarely inside a specific teammate's charter "
+        "rather than yours — don't guess at their expertise yourself, ask them. "
+        "Delegation chains are capped; if you get a depth-limit error back, "
+        "answer with what you already have instead of retrying."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "target": {
+                "type": "string",
+                "description": "Exact name of the teammate to loop in, e.g. 'Scout'.",
+            },
+            "message": {
+                "type": "string",
+                "description": "What to ask or tell them, in plain language.",
+            },
+        },
+        "required": ["target", "message"],
+    },
+}
+
+ADD_REACTION_TOOL = {
+    "type": "custom",
+    "name": "add_reaction",
+    "description": (
+        "React to the Slack message you're replying to, with one emoji. Use it "
+        "the way a coworker would — sparingly, and only when it fits (e.g. "
+        "'eyes' while you dig in, 'tada' on good news, '+1' to back someone up). "
+        "This is a reaction, not a reply — it does not replace answering."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "emoji": {
+                "type": "string",
+                "description": "Emoji name without colons, e.g. 'eyes' or 'tada'.",
+            },
+        },
+        "required": ["emoji"],
+    },
+}
+
 
 SLACK_OPERATING_RULES = """\
 
@@ -148,6 +197,18 @@ paragraphs and, sparingly, a dash list.
 
 When you search or browse, say what you found and link it. If you could not
 verify something, say so plainly rather than hedging your way around it.
+
+You're a coworker in this Slack, not a form to fill out — write like one.
+Use emoji naturally in your text (`:tada:`, `:eyes:`) where they fit, and call
+`add_reaction` when a quick reaction says enough on its own; don't do both for
+the same thing. Pasting a bare GIF/image link on its own line renders it
+inline, so drop one in when it actually lands a joke or a point, found via
+your own browsing — don't make one up. If a question is really someone else's
+lane, `message_teammate` them instead of guessing.
+
+A long, complete answer is better than a chopped-up one — you're not limited
+to one Slack message, so don't compress just to fit; write what the question
+needs and it will be split into as many messages as it takes.
 """
 
 

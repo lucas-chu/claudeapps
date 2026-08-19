@@ -29,7 +29,7 @@ cd claudecanvas
 npm install
 
 npm run dev               # Vite on :5173. That's the whole stack.
-npm test                  # 268 unit tests, no network, no API key
+npm test                  # 284 unit tests, no network, no API key
 npm run typecheck
 npm run build             # -> dist/, deployable to any static host
 npm run preview           # serve the production build
@@ -45,7 +45,8 @@ src/App.tsx           wiring: keyboard, selection, undo/redo, view reset/fit
 src/Omnibar.tsx       the prompt bar — behaviour depends on what's selected
 src/ApiKeyDialog.tsx  key entry: validation, verification, storage scope
 src/api/              stream.ts (Anthropic calls) · sources.ts (web-search cites)
-src/canvas/           geometry.ts · Canvas · TextBox · DrawingBox (Excalidraw)
+src/canvas/           geometry.ts · autoGrow.ts · Canvas · TextBox · DrawingBox
+                      (Excalidraw)
 src/chat/ChatPanel.tsx  the thread — the same one the canvas prompts against
 src/state/            types · store (reducer) · history (undo) · context (request
                       assembly) · persist (localStorage) · apiKey (the user's key)

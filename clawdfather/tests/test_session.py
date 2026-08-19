@@ -25,7 +25,7 @@ def session(teammate, thread_ts="100.1", channel="C_STRAT"):
         channel=channel,
         thread_ts=thread_ts,
         title="t",
-        owner=teammate.bot_user_id,
+        owner=teammate.name,
     )
 
 
@@ -41,7 +41,7 @@ def test_handover_opens_a_new_session(scout, builder, opened):
     builders = session(builder)
     assert builders != scouts
     assert opened == ["agent_scout", "agent_builder"]
-    assert registry.thread_owner("C_STRAT", "100.1") == builder.bot_user_id
+    assert registry.thread_owner("C_STRAT", "100.1") == builder.name
     # And the thread now belongs to Builder, so its follow-ups stay put.
     assert session(builder) == builders
 

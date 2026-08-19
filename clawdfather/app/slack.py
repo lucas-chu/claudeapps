@@ -18,6 +18,7 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from . import clawdfather, config, managed_agent, registry, router, slack_client
+from . import teammate as teammate_tools
 from .prompts import CREATE_TEAMMATE_TOOL, LIST_TEAMMATES_TOOL
 
 log = logging.getLogger(__name__)
@@ -39,6 +40,44 @@ _recent: dict[str, deque[str]] = defaultdict(lambda: deque(maxlen=12))
 
 THINKING = "_thinking…_"
 
+# Real chat.postMessage limits are much higher, but this keeps each message a
+# comfortable, phone-readable size — long answers arrive as several messages
+# instead of one wall of text (and instead of the old silent truncation).
+CHUNK_LIMIT = 3500
+
+
+def _chunk_text(text: str, limit: int = CHUNK_LIMIT) -> list[str]:
+    """Split into Slack-message-sized pieces, preferring paragraph breaks.
+
+    Only a single paragraph longer than `limit` gets hard-sliced; an ordinary
+    long answer comes out as its own paragraphs, grouped to fit.
+    """
+    text = text.strip()
+    if not text:
+        return []
+    if len(text) <= limit:
+        return [text]
+
+    chunks: list[str] = []
+    current = ""
+    for paragraph in text.split("\n\n"):
+        candidate = f"{current}\n\n{paragraph}" if current else paragraph
+        if len(candidate) <= limit:
+            current = candidate
+            continue
+        if current:
+            chunks.append(current)
+            current = ""
+        if len(paragraph) <= limit:
+            current = paragraph
+        else:
+            for i in range(0, len(paragraph), limit):
+                chunks.append(paragraph[i : i + limit])
+            current = ""
+    if current:
+        chunks.append(current)
+    return chunks
+
 
 def _once(key: str) -> bool:
     with _seen_lock:
@@ -58,6 +97,8 @@ class Reply:
         self.client = client
         self.channel = channel
         self.thread_ts = thread_ts
+        self.username = username
+        self.emoji = emoji
         self.ts = slack_client.post(
             client,
             channel=channel,
@@ -76,14 +117,32 @@ class Reply:
         self._last = now
         slack_client.update(self.client, channel=self.channel, ts=self.ts, text=text[:2900])
 
+    def _post_more(self, text: str) -> None:
+        slack_client.post(
+            self.client,
+            channel=self.channel,
+            thread_ts=self.thread_ts,
+            text=text,
+            username=self.username,
+            icon_emoji=self.emoji,
+        )
+
     def finish(self, text: str) -> None:
-        body = text.strip() or "_(no response)_"
+        """Post the final answer, split across as many messages as it takes.
+
+        The first chunk replaces the "thinking" bubble in place; any more are
+        posted as their own follow-up messages, so a long answer reads as the
+        teammate continuing to type rather than being cut off.
+        """
+        chunks = _chunk_text(text) or ["_(no response)_"]
+        first, rest = chunks[0], chunks[1:]
         if self.ts:
-            slack_client.update(self.client, channel=self.channel, ts=self.ts, text=body[:3900])
+            slack_client.update(self.client, channel=self.channel, ts=self.ts, text=first)
         else:
-            slack_client.post(
-                self.client, channel=self.channel, thread_ts=self.thread_ts, text=body[:3900]
-            )
+            self._post_more(first)
+        for chunk in rest:
+            time.sleep(0.3)  # stay well under Slack's per-channel post rate
+            self._post_more(chunk)
 
 
 def _run_clawdfather(*, channel: str, thread_ts: str, text: str) -> None:
@@ -108,7 +167,9 @@ def _run_clawdfather(*, channel: str, thread_ts: str, text: str) -> None:
     reply.finish(answer)
 
 
-def _run_teammate(teammate: registry.Teammate, *, channel: str, thread_ts: str, text: str) -> None:
+def _run_teammate(
+    teammate: registry.Teammate, *, channel: str, thread_ts: str, trigger_ts: str, text: str
+) -> None:
     slot = registry.slot_for(teammate)
     if slot is None:
         log.error("teammate %s has no configured slot %s", teammate.name, teammate.slot_index)
@@ -121,6 +182,9 @@ def _run_teammate(teammate: registry.Teammate, *, channel: str, thread_ts: str, 
         username=teammate.name,
         emoji=teammate.emoji,
     )
+    ctx = teammate_tools.Context(
+        caller=teammate, channel=channel, thread_ts=thread_ts, trigger_ts=trigger_ts
+    )
     try:
         answer = managed_agent.run_turn(
             agent_id=teammate.agent_id,
@@ -129,7 +193,8 @@ def _run_teammate(teammate: registry.Teammate, *, channel: str, thread_ts: str, 
             thread_ts=thread_ts,
             text=text,
             title=f"{teammate.name} · {channel}",
-            owner=teammate.bot_user_id,
+            owner=teammate.name,
+            tool_handler=teammate_tools.handler_for(ctx),
             on_progress=reply.progress,
         )
     except Exception as exc:
@@ -138,7 +203,9 @@ def _run_teammate(teammate: registry.Teammate, *, channel: str, thread_ts: str, 
     reply.finish(answer)
 
 
-def _run_ambient(decision: router.Decision, *, channel: str, thread_ts: str) -> None:
+def _run_ambient(
+    decision: router.Decision, *, channel: str, thread_ts: str, trigger_ts: str
+) -> None:
     """Let each home-channel teammate decide, and stop at the first RESPOND."""
     history = list(_recent[channel])[:-1]
     for teammate in decision.candidates:
@@ -148,7 +215,13 @@ def _run_ambient(decision: router.Decision, *, channel: str, thread_ts: str) -> 
         )
         log.info("gate %s: %s (%s)", teammate.name, "RESPOND" if respond else "IGNORE", reason)
         if respond:
-            _run_teammate(teammate, channel=channel, thread_ts=thread_ts, text=decision.text)
+            _run_teammate(
+                teammate,
+                channel=channel,
+                thread_ts=thread_ts,
+                trigger_ts=trigger_ts,
+                text=decision.text,
+            )
             return
 
 
@@ -186,10 +259,11 @@ def on_message(event, logger):  # noqa: ARG001 — Bolt injects `logger`
             decision.teammate,
             channel=channel,
             thread_ts=thread_ts,
+            trigger_ts=ts,
             text=decision.text,
         )
     elif decision.kind == "ambient":
-        pool.submit(_run_ambient, decision, channel=channel, thread_ts=thread_ts)
+        pool.submit(_run_ambient, decision, channel=channel, thread_ts=thread_ts, trigger_ts=ts)
 
 
 def _our_user_ids() -> set[str]:
@@ -208,6 +282,16 @@ def ensure_clawdfather_tools() -> None:
             LIST_TEAMMATES_TOOL,
         ],
     )
+
+
+def ensure_teammate_tools() -> None:
+    """Backfill `message_teammate`/`add_reaction` onto teammates hired earlier.
+
+    New hires get `teammate_tools.TEAMMATE_TOOLS` from `clawdfather.hire()`
+    directly; this is only for teammates created before those tools existed.
+    """
+    for t in registry.all_teammates():
+        managed_agent.client.beta.agents.update(t.agent_id, tools=teammate_tools.TEAMMATE_TOOLS)
 
 
 def main() -> None:

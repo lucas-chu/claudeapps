@@ -1,8 +1,12 @@
 """JSON-backed persistence for teammates, thread sessions, and slot claims.
 
-Two maps, per the PRD:
-    slack_bot_user_id -> teammate record
-    "<channel>:<thread_ts>" -> managed agent session id
+Two maps:
+    lowercased teammate name -> teammate record
+    "<channel>:<thread_ts>" -> managed agent session id + owner
+
+Teammates are keyed by name, not `bot_user_id`: once there are more teammates
+than identity-pool slots, several teammates legitimately share one Slack
+identity, so `bot_user_id` is no longer unique.
 
 The thread key includes the channel because thread_ts is only unique within a
 channel.
@@ -80,10 +84,22 @@ def all_teammates() -> list[Teammate]:
         return [Teammate(**rec) for rec in _load()["teammates"].values()]
 
 
+def teammates_by_bot_id(bot_user_id: str) -> list[Teammate]:
+    """Every teammate currently posting from this Slack identity.
+
+    More than one is expected once teammates outnumber identity-pool slots —
+    several named teammates can share one underlying Slack app.
+    """
+    return [t for t in all_teammates() if t.bot_user_id == bot_user_id]
+
+
 def teammate_by_bot_id(bot_user_id: str) -> Teammate | None:
-    with _lock:
-        rec = _load()["teammates"].get(bot_user_id)
-        return Teammate(**rec) if rec else None
+    """First teammate on this identity. Fine for call sites that don't need
+    to disambiguate a shared slot (e.g. the doctor); routing uses
+    `teammates_by_bot_id` instead.
+    """
+    matches = teammates_by_bot_id(bot_user_id)
+    return matches[0] if matches else None
 
 
 def teammates_in_channel(channel_id: str) -> Iterator[Teammate]:
@@ -103,33 +119,39 @@ def teammate_by_name(name: str) -> Teammate | None:
 def save_teammate(teammate: Teammate) -> None:
     with _lock:
         data = _load()
-        data["teammates"][teammate.bot_user_id] = asdict(teammate)
+        # Keyed by name, not bot_user_id: once teammates outnumber identity
+        # slots, several teammates legitimately share one bot_user_id.
+        data["teammates"][teammate.name.lower()] = asdict(teammate)
         _save(data)
 
 
 def claim_slot(preferred_name: str) -> Slot:
-    """Take a free identity from the pool.
+    """Take the least-loaded identity from the pool.
 
     Re-hiring a name that already exists reuses that teammate's slot, so
-    `@ClawdFather create Scout ...` twice updates Scout instead of burning a slot.
+    `@ClawdFather create Scout ...` twice updates Scout instead of burning a
+    slot. Otherwise, teammates are handed the slot with the fewest current
+    teammates (ties go to the lowest index) — so hiring is never blocked by
+    running out of identities, only spread as evenly as possible across the
+    ones that exist.
     """
     with _lock:
         existing = teammate_by_name(preferred_name)
         pool = identity_pool()
+        if not pool:
+            raise RuntimeError(
+                "No Slack identities configured. Add at least one "
+                "SLACK_TEAMMATE_N_BOT_TOKEN / SLACK_TEAMMATE_N_USER_ID pair to .env."
+            )
         if existing:
             for slot in pool:
                 if slot.index == existing.slot_index:
                     return slot
-        taken = {t.slot_index for t in all_teammates()}
-        for slot in pool:
-            if slot.index not in taken:
-                return slot
-        raise RuntimeError(
-            f"All {len(pool)} Slack identities are in use "
-            f"({', '.join(t.name for t in all_teammates())}). "
-            "Add another SLACK_TEAMMATE_N_* pair to .env, or re-hire an "
-            "existing name to reuse its slot."
-        )
+        load: dict[int, int] = {slot.index: 0 for slot in pool}
+        for teammate in all_teammates():
+            if teammate.slot_index in load:
+                load[teammate.slot_index] += 1
+        return min(pool, key=lambda slot: (load[slot.index], slot.index))
 
 
 def slot_for(teammate: Teammate) -> Slot | None:
@@ -148,7 +170,7 @@ def slot_for(teammate: Teammate) -> Slot | None:
 # "what about their enterprise tier?" goes to Scout without re-mentioning it,
 # in any channel.
 
-CLAWDFATHER = "clawdfather"  # owner sentinel; teammates use their bot user ID
+CLAWDFATHER = "clawdfather"  # owner sentinel; teammates use their (unique) name
 
 
 def thread_key(channel: str, thread_ts: str) -> str:
@@ -170,7 +192,7 @@ def get_session(channel: str, thread_ts: str) -> str | None:
 
 
 def thread_owner(channel: str, thread_ts: str) -> str | None:
-    """Bot user ID, the CLAWDFATHER sentinel, or None if the thread is unclaimed."""
+    """A teammate's name, the CLAWDFATHER sentinel, or None if unclaimed."""
     with _lock:
         rec = _thread_record(_load(), channel, thread_ts)
         return rec.get("owner") if rec else None

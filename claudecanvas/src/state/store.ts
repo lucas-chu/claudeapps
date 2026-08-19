@@ -54,6 +54,7 @@ export type Action = (
   | { type: 'addBox'; box: Box }
   | { type: 'moveBox'; id: string; x: number; y: number }
   | { type: 'resizeBox'; id: string; x: number; y: number; w: number; h: number }
+  | { type: 'growBox'; id: string; h: number }
   | { type: 'setBoxText'; id: string; text: string }
   | { type: 'setBoxDrawing'; id: string; elements: unknown[]; appState?: unknown; preview?: string }
   | { type: 'deleteBox'; id: string }
@@ -110,6 +111,17 @@ export function reducer(state: State, action: Action): State {
         y: action.y,
         w: Math.max(MIN_BOX_W, action.w),
         h: Math.max(MIN_BOX_H, action.h),
+      }))
+
+    // Auto-grow while a box is being written into (see canvas/autoGrow.ts).
+    // Height only - width stays where the user put it, since a box that grew
+    // sideways mid-stream would reflow every line already on screen. Never
+    // shrinks, and never below MIN_BOX_H, so a measurement taken at an
+    // awkward moment can't collapse a box the user has resized taller.
+    case 'growBox':
+      return mapBox(state, action.id, (b) => ({
+        ...b,
+        h: Math.max(b.h, MIN_BOX_H, action.h),
       }))
 
     case 'setBoxText':

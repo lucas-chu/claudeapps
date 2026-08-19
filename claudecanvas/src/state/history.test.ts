@@ -125,9 +125,27 @@ describe('non-undoable actions create no history step', () => {
     h = historyReducer(h, { type: 'setBoxStatus', id: 'a', status: 'idle' })
     h = historyReducer(h, { type: 'setBoxSources', id: 'a', sources: [] })
     h = historyReducer(h, { type: 'setBoxPrompt', id: 'a', prompt: 'hi' })
+    h = historyReducer(h, { type: 'growBox', id: 'a', h: 500 })
     h = historyReducer(h, { type: 'rollbackShadow', id: 'a', error: 'oops' })
     expect(h.past).toEqual(before.past)
     expect(h.past).toHaveLength(1) // only the initial addBox
+  })
+
+  it('growth during a rewrite costs no extra undo to get the text back', () => {
+    let h = setup()
+    h = historyReducer(h, {
+      type: 'setBoxText', id: 'a', text: 'original', at: 1000,
+    })
+    h = historyReducer(h, { type: 'beginShadow', id: 'a' })
+    h = historyReducer(h, { type: 'appendShadow', id: 'a', text: 'a much longer answer' })
+    h = historyReducer(h, { type: 'growBox', id: 'a', h: 700 })
+    h = historyReducer(h, { type: 'commitShadow', id: 'a', at: 3000 })
+
+    // A single undo restores the pre-rewrite text: the dozens of growth
+    // dispatches in between contributed no steps of their own, so undo isn't
+    // spent unwinding them one at a time.
+    h = historyReducer(h, { type: 'undo' })
+    expect(h.present.boxes[0].blocks).toEqual([{ type: 'text', text: 'original' }])
   })
 
   it('viewport changes do not push a step', () => {

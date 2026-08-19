@@ -53,10 +53,32 @@ class Config:
     # 280 for a standard account; set to 25000 if the bot account has Premium.
     max_post_chars: int = _int("MAX_POST_CHARS", 280)
     thread_depth: int = _int("THREAD_DEPTH", 3)
+    # An answer worth more than 280 characters is posted as a numbered self-reply
+    # thread instead of being cut down to one post. "false" restores the
+    # single-post behaviour, where the guard's ladder trims the answer to fit.
+    thread_replies: bool = _bool("CHECKCLAUDE_THREAD_REPLIES", True)
+    max_thread_posts: int = _int("CHECKCLAUDE_MAX_THREAD_POSTS", 4)
+
+    # --- DMs ---------------------------------------------------------------
+    # People can also ask privately. A DM is answered in the same DM and never
+    # anywhere else: the requester chose a private channel, so the answer stays
+    # in it. Needs dm.read + dm.write on the bot account's app.
+    dm_enabled: bool = _bool("CHECKCLAUDE_DM", True)
+    dm_poll_seconds: int = _int("DM_POLL_SECONDS", 60)
+    # DMs allow 10,000 characters, which is why the unabridged answer lives here.
+    max_dm_chars: int = _int("MAX_DM_CHARS", 10000)
+    # When a public answer won't fit even the thread, DM the full version to
+    # whoever asked. Only mentioned publicly if the DM actually arrives.
+    dm_overflow: bool = _bool("CHECKCLAUDE_DM_OVERFLOW", True)
 
     # --- Ops ---------------------------------------------------------------
     db_path: str = os.getenv("CHECKCLAUDE_DB", "checkclaude.sqlite3")
     dry_run: bool = _bool("DRY_RUN", False)
+
+    @property
+    def thread_posts(self) -> int:
+        """How many posts one public answer may occupy."""
+        return max(1, self.max_thread_posts) if self.thread_replies else 1
 
     def require_read_credentials(self) -> None:
         if not self.bearer_token:

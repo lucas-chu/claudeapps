@@ -8,7 +8,7 @@ os.environ.setdefault("SLACK_APP_TOKEN", "xapp-test")
 
 import pytest  # noqa: E402
 
-from app import registry  # noqa: E402
+from app import registry, router  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -16,6 +16,18 @@ def isolated_registry(tmp_path, monkeypatch):
     """Point the registry at a temp file so tests never touch data/registry.json."""
     monkeypatch.setattr(registry, "DATA_DIR", tmp_path)
     monkeypatch.setattr(registry, "REGISTRY_PATH", tmp_path / "registry.json")
+    yield
+
+
+@pytest.fixture(autouse=True)
+def no_ambient_pool(monkeypatch):
+    """Default the router's identity pool to empty.
+
+    `router.route` falls back to `identity_pool()`, which reads the environment
+    — and a developer's real `.env` would otherwise leak real slots into tests.
+    Tests that care about the pool pass `slots=` explicitly.
+    """
+    monkeypatch.setattr(router, "identity_pool", list)
     yield
 
 
@@ -29,6 +41,20 @@ def pool(monkeypatch):
     ]
     monkeypatch.setattr(registry, "identity_pool", lambda: slots)
     return slots
+
+
+@pytest.fixture
+def clawds():
+    """The identity pool as the router sees it: three named Clawds.
+
+    Slots 1 and 2 are the ones `scout` and `builder` are hired into; slot 3 is
+    configured but unassigned.
+    """
+    return [
+        registry.Slot(index=1, bot_token="t1", bot_user_id="U111", name="Clawd One"),
+        registry.Slot(index=2, bot_token="t2", bot_user_id="U222", name="Clawd Two"),
+        registry.Slot(index=3, bot_token="t3", bot_user_id="U333", name="Clawd Three"),
+    ]
 
 
 def make_teammate(name, bot_user_id, slot_index, home_channel, home_name="strategy"):
