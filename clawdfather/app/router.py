@@ -3,6 +3,7 @@
     not a real human message?      -> drop (loop guard, joins, edits)
     mentions @ClawdFather?         -> ClawdFather
     mentions @<teammate>?          -> that teammate, always respond
+    mentions someone we don't own? -> drop (it is addressed to them)
     reply in a thread someone
       already owns?                -> that same someone, always respond
     mentions a Clawd we can't pin
@@ -174,6 +175,18 @@ def route(
         slot = slot_by_bot_id.get(bot_id)
         if slot is not None and slot not in unresolved:
             unresolved.append(slot)
+
+    # A mention we don't own at all — a human, or another app such as @Claude.
+    # The message is addressed to them, so stay out of it entirely rather than
+    # let a thread owner claim it or a home-channel teammate answer over the
+    # top. Ours means every hired teammate, every pool identity (hired into or
+    # not), and ClawdFather; an ID that is one of ours but couldn't be pinned
+    # to a single teammate is not "someone else" and keeps falling through.
+    # `unresolved` non-empty means a Clawd was named too, and an explicit
+    # mention of ours always gets an answer — so it wins over the drop.
+    ours = set(by_bot_id) | set(slot_by_bot_id) | {clawdfather_id}
+    if not unresolved and mentioned - ours:
+        return None
 
     # Follow-up in a thread that already has a speaker.
     if thread_ts:

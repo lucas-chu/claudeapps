@@ -50,8 +50,9 @@ def test_mentions_become_names_not_ids(scout, builder):
     assert route("<@U111> ask <@U222> too", "C_X").text == "Scout ask Builder too"
 
 
-def test_unknown_mention_does_not_crash(scout):
-    assert route("<@UNOBODY> hello", "C_STRAT").text == "@someone hello"
+def test_unknown_id_renders_as_someone(scout):
+    """An ID we can't name still has to read as prose, not as a raw token."""
+    assert route("<@U111> ask <@UNOBODY> too", "C_X").text == "Scout ask @someone too"
 
 
 # --- thread ownership: the follow-up path ---------------------------------
@@ -236,3 +237,37 @@ def test_first_mention_wins_when_two_are_named(scout, builder):
     assert d.kind == "direct" and d.teammate.name == "Builder"
     d = route("<@U111> <@U222> who owns this?", "C_RANDOM")
     assert d.kind == "direct" and d.teammate.name == "Scout"
+
+
+# --- sharing the workspace with other bots ---------------------------------
+
+
+def test_a_message_addressed_to_someone_else_is_left_alone(scout):
+    """@Claude (or any other app, or a human) in Scout's home channel."""
+    assert route("<@UCLAUDE> fix the failing test in checkclaude", "C_STRAT") is None
+
+
+def test_someone_else_mentioned_beats_thread_ownership(scout):
+    """Handing a Scout thread to another app must not route back to Scout."""
+    registry.set_session("C_RANDOM", "900.1", "sesn_x", owner="Scout")
+    assert route("<@UCLAUDE> open a PR for this", "C_RANDOM", thread_ts="900.1") is None
+
+
+def test_our_own_mention_still_wins_alongside_another(scout):
+    assert route("<@UCLAUDE> and <@U111> — thoughts?", "C_STRAT").teammate.name == "Scout"
+
+
+def test_a_shared_identity_is_never_treated_as_someone_else(pool):
+    """Two teammates on one Slack identity: still ours, so resolution stands."""
+    for name, home in (("Scout", "C_STRAT"), ("Probe", "C_OTHER")):
+        registry.save_teammate(make_teammate(name, "U111", 1, home, home.lower()))
+    # Disambiguated by home channel — the new drop rule must not pre-empt this.
+    assert route("<@U111> pricing?", "C_STRAT").teammate.name == "Scout"
+    # Ambiguous from a third channel: dropped by _resolve_mention as before.
+    assert route("<@U111> pricing?", "C_THIRD") is None
+
+
+def test_an_unhired_clawd_named_alongside_another_app_still_greets(scout, clawds):
+    """Explicit mention of ours wins, even when someone else is named too."""
+    d = route("<@UCLAUDE> and <@U333> — either of you?", "C_RANDOM", slots=clawds)
+    assert d is not None and d.kind == "greeting" and d.slot.index == 3

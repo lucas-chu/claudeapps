@@ -29,6 +29,9 @@ router.route()
   ├── bot / join / edit?         → drop (loop guard + noise filter)
   ├── mentions @ClawdFather      → ClawdFather agent + create_teammate tool
   ├── mentions @Scout            → Scout's agent, always responds
+  ├── mentions someone we don't
+  │     own                      → drop (a human, or another app such as
+  │                                @Claude — it is addressed to them)
   ├── reply in a thread Scout
   │     already owns             → Scout — no mention needed
   ├── in Scout's home channel    → Haiku RESPOND/IGNORE gate, then maybe
