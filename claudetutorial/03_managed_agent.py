@@ -40,6 +40,8 @@ def main() -> None:
 
     client = anthropic.Anthropic()
 
+    # NOTE: same demo-only shortcut as the agent below -- production code
+    # creates the environment once, stores environment.id, and reuses it.
     print("Creating environment...")
     environment = client.beta.environments.create(
         name=f"claudetutorial-{int(time.time())}",

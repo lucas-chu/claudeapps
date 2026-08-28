@@ -12,7 +12,7 @@ Not a script to read verbatim — beats to hit, so it stays natural. Target: 2.5
 
 ## Demo — tier 1 (~30s)
 - Run `01_hello_claude.py` live.
-- Point at the streaming output, then the usage numbers at the bottom — call out `cache_read_input_tokens` going from 0 to nonzero on the second call.
+- Point at the streaming output, then the usage numbers at the bottom — call out `cache_read_input_tokens` going above 0 on the second call (a cache hit).
 - One line: "if you're re-sending context on every request, this is free money left on the table."
 
 ## Demo — tier 2 (~40s)
