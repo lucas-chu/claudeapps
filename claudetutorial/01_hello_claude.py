@@ -42,7 +42,7 @@ def ask(client: anthropic.Anthropic, question: str) -> None:
 
     with client.messages.stream(
         model=MODEL,
-        max_tokens=1024,
+        max_tokens=16000,
         system=[
             {
                 "type": "text",
@@ -59,10 +59,10 @@ def ask(client: anthropic.Anthropic, question: str) -> None:
         final = stream.get_final_message()
 
     print()
-    print(f"  time to first token: {first_token_at - started:.2f}s")
-    print(f"  cache write tokens:  {final.usage.cache_creation_input_tokens}")
-    print(f"  cache read tokens:   {final.usage.cache_read_input_tokens}")
-    print(f"  billable input:      {final.usage.input_tokens}")
+    print(f"  time to first text token: {first_token_at - started:.2f}s")
+    print(f"  cache write tokens:       {final.usage.cache_creation_input_tokens}")
+    print(f"  cache read tokens:        {final.usage.cache_read_input_tokens}")
+    print(f"  uncached input tokens:    {final.usage.input_tokens}")
     print()
 
 

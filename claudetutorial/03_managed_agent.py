@@ -40,6 +40,8 @@ def main() -> None:
 
     client = anthropic.Anthropic()
 
+    # NOTE: same demo-only shortcut as the agent below -- production code
+    # creates the environment once, stores environment.id, and reuses it.
     print("Creating environment...")
     environment = client.beta.environments.create(
         name=f"claudetutorial-{int(time.time())}",
@@ -118,7 +120,9 @@ def main() -> None:
         os.makedirs("outputs", exist_ok=True)
         for f in files:
             local_path = os.path.join("outputs", f.filename)
-            client.beta.files.download(f.id).write_to_file(local_path)
+            client.beta.files.download(
+                f.id, betas=["managed-agents-2026-04-01"]
+            ).write_to_file(local_path)
             print(f"  saved {local_path}")
     else:
         print("  no output files yet -- rerun the download step in a few seconds.")

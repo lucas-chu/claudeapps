@@ -7,8 +7,8 @@ Nobody wants a 40-minute tutorial before their first API call. This one gets you
 ## Quickstart
 
 ```bash
-git clone <this-repo>
-cd claudetutorial
+git clone https://github.com/lucas-chu/claudeapps.git
+cd claudeapps/claudetutorial
 pip install -r requirements.txt
 cp .env.example .env   # paste in your ANTHROPIC_API_KEY
 python smoke_test.py   # confirms setup, makes no network calls
@@ -33,7 +33,7 @@ Below, the same incident — a checkout API throwing errors — gets handled at 
 python 01_hello_claude.py
 ```
 
-A support assistant answers two questions about a product (made up: a webhook delivery API called Loopwire). Nothing fancy — `client.messages.stream(...)`, print the tokens as they come in. The interesting part is the second call: both requests share the same system prompt, marked with `cache_control`, so the second one reads that context from cache instead of paying full price for it again. The script prints the usage numbers so you can see it happen — `cache_read_input_tokens` goes from 0 to something on the second call.
+A support assistant answers two questions about a product (made up: a webhook delivery API called Loopwire). Nothing fancy — `client.messages.stream(...)`, print the tokens as they come in. The interesting part is the second call: both requests share the same system prompt, marked with `cache_control`, so the second one can read that context from cache instead of paying full price for it again. The script prints the usage numbers so you can check — a cache hit shows `cache_read_input_tokens` above 0 on the second call; a miss shows 0 again.
 
 If your product has any kind of standing context (docs, a schema, a style guide, prior turns in a conversation) and you're re-sending it on every request, this is the first thing to fix, and it's a one-line change.
 
@@ -57,7 +57,7 @@ Same incident, but now Claude isn't limited to three functions you wrote — it 
 
 Worth sitting with what didn't happen here: no Dockerfile, no container orchestration, no exec-in-sandbox service, no cleanup logic for runaway processes. That's the pitch for Managed Agents specifically — it's the one surface where Anthropic runs your agent's computer, not just its brain. If you've looked at OpenAI or Gemini for something like this, this is the piece that doesn't have a clean equivalent yet.
 
-One thing worth knowing going in: the script creates a fresh agent every time you run it, which is fine for a demo and wrong for production. Agents are meant to be created once and reused by ID — see the comment in the script.
+One thing worth knowing going in: the script creates a fresh agent *and* a fresh environment every time you run it, which is fine for a demo and wrong for production — both are meant to be created once and reused by ID. See the comments in the script.
 
 ## A couple of things I'm intentionally skipping
 
@@ -65,7 +65,7 @@ Vision, batch processing, the memory tool, structured outputs, MCP server integr
 
 ## On the model
 
-Every script here uses `claude-opus-5`. One quirk worth knowing if you go spelunking in the request body: don't send `temperature`, `top_p`, `top_k`, or an explicit `thinking` param — leave them out entirely. Sending an explicit "disabled" for thinking on this model family makes tool calls leak out as plain text instead of firing, which is a confusing way to lose an afternoon. If you're running high volume, cheaper models exist in the same family for the parts of your pipeline that don't need the strongest model — swap `MODEL` and everything else in these scripts stays the same.
+Every script here uses `claude-opus-5`. One quirk worth knowing if you go spelunking in the request body: `top_p`, `top_k`, and `temperature` must stay default — this model family 400s otherwise. Thinking is on by default (`{type: "adaptive"}`); sending that explicitly is fine, but `{type: "disabled"}` can leak tool calls out as plain text instead of firing, which is a confusing way to lose an afternoon. If you're running high volume, cheaper models exist in the same family for the parts of your pipeline that don't need the strongest model — swap `MODEL` and everything else in these scripts stays the same.
 
 ## Where to go next
 

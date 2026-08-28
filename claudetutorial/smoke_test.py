@@ -28,6 +28,16 @@ def check_sdk_installed() -> bool:
     return True
 
 
+def check_dotenv_installed() -> bool:
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        print("FAIL: `python-dotenv` isn't installed. Run: pip install -r requirements.txt")
+        return False
+    load_dotenv()
+    return True
+
+
 def check_api_key() -> bool:
     if not os.environ.get("ANTHROPIC_API_KEY"):
         print("WARN: ANTHROPIC_API_KEY isn't set -- the numbered scripts need it, this check doesn't.")
@@ -50,7 +60,12 @@ def check_scripts_compile() -> bool:
 
 
 def main() -> None:
-    results = [check_sdk_installed(), check_api_key(), check_scripts_compile()]
+    results = [
+        check_sdk_installed(),
+        check_dotenv_installed(),
+        check_api_key(),
+        check_scripts_compile(),
+    ]
     if not all(results):
         sys.exit(1)
     print("\nAll good -- run 01_hello_claude.py to make your first real call.")
