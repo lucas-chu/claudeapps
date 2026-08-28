@@ -65,7 +65,7 @@ Vision, batch processing, the memory tool, structured outputs, MCP server integr
 
 ## On the model
 
-Every script here uses `claude-opus-5`. One quirk worth knowing if you go spelunking in the request body: don't send `temperature`, `top_p`, or `top_k` — this model family 400s on them. Thinking is on by default (`{type: "adaptive"}`); sending that explicitly is fine, but sending `{type: "disabled"}` makes tool calls leak out as plain text instead of firing, which is a confusing way to lose an afternoon. If you're running high volume, cheaper models exist in the same family for the parts of your pipeline that don't need the strongest model — swap `MODEL` and everything else in these scripts stays the same.
+Every script here uses `claude-opus-5`. One quirk worth knowing if you go spelunking in the request body: `top_p`, `top_k`, and `temperature` must stay default — this model family 400s otherwise. Thinking is on by default (`{type: "adaptive"}`); sending that explicitly is fine, but `{type: "disabled"}` can leak tool calls out as plain text instead of firing, which is a confusing way to lose an afternoon. If you're running high volume, cheaper models exist in the same family for the parts of your pipeline that don't need the strongest model — swap `MODEL` and everything else in these scripts stays the same.
 
 ## Where to go next
 

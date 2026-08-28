@@ -226,6 +226,7 @@ One workflow per project, all firing on every PR:
 | `.github/workflows/canvas.yml` | `claudecanvas/`: typecheck + vitest + build |
 | `.github/workflows/tests.yml` | `checkclaude/`: pytest |
 | `.github/workflows/ci.yml` | `clawdfather/`: ruff + pytest + import check |
+| `.github/workflows/tutorial.yml` | `claudetutorial/`: pytest |
 
 ## Open threads
 
