@@ -42,7 +42,7 @@ def ask(client: anthropic.Anthropic, question: str) -> None:
 
     with client.messages.stream(
         model=MODEL,
-        max_tokens=1024,
+        max_tokens=16000,
         system=[
             {
                 "type": "text",

@@ -14,6 +14,10 @@ import pathlib
 import py_compile
 import sys
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 REPO_ROOT = pathlib.Path(__file__).parent
 SCRIPTS = ["01_hello_claude.py", "02_tool_use_agent.py", "03_managed_agent.py"]
 

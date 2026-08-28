@@ -85,7 +85,7 @@ def main() -> None:
 
     runner = client.beta.messages.tool_runner(
         model=MODEL,
-        max_tokens=1024,
+        max_tokens=16000,
         tools=[check_service_status, search_runbook, page_oncall],
         messages=[{"role": "user", "content": alert}],
     )
